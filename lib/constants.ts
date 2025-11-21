@@ -22,11 +22,4 @@ export const CREATOR_TEMPLATES: CreatorTemplate[] = [
     videoUrl: '/3c8254e1-62d1-4c2c-8d73-5f8b70843cc5.mp4',
     persona: 'Fitness-focused male creator, direct and results-driven, uses gym/fitness terminology',
   },
-  {
-    id: 'neutral',
-    name: 'Neutral Brand Voice',
-    description: 'Professional, balanced, brand-focused',
-    videoUrl: null,
-    persona: 'Professional, balanced brand voice without specific persona',
-  },
 ]

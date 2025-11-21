@@ -64,6 +64,7 @@ export interface ExperimentData {
   tone: string;
   captionsPerCombo: number;
   captionLength: 'short' | 'medium' | 'long'; // Caption length preference
+  aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5'; // Video aspect ratio
   subtitleEnabled: boolean;
   subtitleStyle: string | null;
   captionStyle: CaptionStyle;
