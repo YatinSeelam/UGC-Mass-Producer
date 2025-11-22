@@ -11,101 +11,96 @@ interface VideoCanvasPreviewProps {
   captionStyle: CaptionStyle
   onCaptionStyleChange?: (style: Partial<CaptionStyle>) => void
   onCaptionChange?: (caption: string) => void
-  width?: number
-  height?: number
   aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5'
-  play?: boolean // External control for play state
+  play?: boolean
   onPlayStateChange?: (playing: boolean) => void
   onTimeUpdate?: (currentTime: number, duration: number) => void
-  seekTime?: number // External control for seeking
-  creatorDuration?: number // Duration of creator video for timeline calculations
+  seekTime?: number
+  creatorDuration?: number
+  volume?: number
 }
 
-/**
- * Optimized VideoCanvasPreview with smooth dragging and resizing
- */
-function VideoCanvasPreview({
+type InteractionMode = 'none' | 'drag' | 'resize-tl' | 'resize-tr' | 'resize-bl' | 'resize-br' | 'rotate'
+
+export default function VideoCanvasPreview({
   creatorVideoUrl,
   demoVideoUrl,
   caption,
   captionStyle,
   onCaptionStyleChange,
   onCaptionChange,
-  width = 1080,
-  height = 1920,
   aspectRatio = '9:16',
   play = false,
   onPlayStateChange,
   onTimeUpdate,
   seekTime,
-  creatorDuration = 0,
+  creatorDuration: externalCreatorDuration = 0,
+  volume = 1,
 }: VideoCanvasPreviewProps) {
-  // Calculate dimensions based on aspect ratio
   const getAspectRatioDimensions = () => {
     switch (aspectRatio) {
-      case '16:9':
-        return { width: 1920, height: 1080 }
-      case '1:1':
-        return { width: 1080, height: 1080 }
-      case '4:5':
-        return { width: 1080, height: 1350 }
+      case '16:9': return { width: 1920, height: 1080 }
+      case '1:1': return { width: 1080, height: 1080 }
+      case '4:5': return { width: 1080, height: 1350 }
       case '9:16':
-      default:
-        return { width: 1080, height: 1920 }
+      default: return { width: 1080, height: 1920 }
     }
   }
 
   const dimensions = getAspectRatioDimensions()
   const canvasWidth = dimensions.width
   const canvasHeight = dimensions.height
+
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
   const creatorVideoRef = useRef<HTMLVideoElement>(null)
   const demoVideoRef = useRef<HTMLVideoElement>(null)
-  const animationFrameRef = useRef<number | null>(null)
+  const lastSeekRef = useRef<number | null>(null)
 
-  const [isPlaying, setIsPlaying] = useState(false)
   const [currentPhase, setCurrentPhase] = useState<'creator' | 'demo'>('creator')
-  const [isDragging, setIsDragging] = useState(false)
-  const [isResizing, setIsResizing] = useState(false)
-  const [resizeHandle, setResizeHandle] = useState<'tl' | 'tr' | 'bl' | 'br' | null>(null)
-  const [isEditingText, setIsEditingText] = useState(false)
-  const [editText, setEditText] = useState(caption)
-
-  // Sync editText with caption prop
-  useEffect(() => {
-    if (!isEditingText) {
-      setEditText(caption)
-    }
-  }, [caption, isEditingText])
-
-  // Use local state for smooth dragging, update parent on release
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('none')
   const [localStyle, setLocalStyle] = useState(captionStyle)
-  const dragStartRef = useRef({ x: 0, y: 0, startX: 0, startY: 0, startWidth: 0, startFontSize: 0 })
+  const [internalCreatorDuration, setInternalCreatorDuration] = useState(0)
+  const [internalDemoDuration, setInternalDemoDuration] = useState(0)
+  const [captionBounds, setCaptionBounds] = useState({ x: 0, y: 0, width: 0, height: 0 })
 
-  // Sync local style with props when not dragging/resizing
+  const dragStartRef = useRef({
+    x: 0, y: 0,
+    startX: 0, startY: 0,
+    startWidth: 0, startFontSize: 0,
+    startRotation: 0,
+    centerX: 0, centerY: 0
+  })
+
+  // Sync local style with props when not interacting
   useEffect(() => {
-    if (!isDragging && !isResizing) {
-      setLocalStyle(captionStyle)
-    }
-  }, [captionStyle, isDragging, isResizing])
+    if (interactionMode === 'none') setLocalStyle(captionStyle)
+  }, [captionStyle, interactionMode])
 
-  // Render video frame to main canvas (optimized - only when playing)
+  // Render video frame to canvas
   const renderVideoFrame = useCallback(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d', { alpha: false })
     if (!canvas || !ctx) return
 
-    const currentVideo =
-      currentPhase === 'creator' && creatorVideoRef.current
-        ? creatorVideoRef.current
-        : demoVideoRef.current
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
 
-    if (!currentVideo || currentVideo.readyState < 2) return
+    let currentVideo: HTMLVideoElement | null = null
+    if (currentPhase === 'creator' && creatorVideo && creatorVideoUrl) {
+      currentVideo = creatorVideo
+    } else if (currentPhase === 'demo' && demoVideo && demoVideoUrl) {
+      currentVideo = demoVideo
+    } else if (demoVideo && demoVideoUrl) {
+      currentVideo = demoVideo
+    } else if (creatorVideo && creatorVideoUrl) {
+      currentVideo = creatorVideo
+    }
 
-    // Clear and draw video
     ctx.fillStyle = '#000'
     ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+    if (!currentVideo || currentVideo.readyState < 2) return
 
     const videoAspect = currentVideo.videoWidth / currentVideo.videoHeight
     const canvasAspect = canvasWidth / canvasHeight
@@ -125,21 +120,15 @@ function VideoCanvasPreview({
       offsetY = -(drawHeight - canvasHeight) / 2
     }
 
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
     ctx.drawImage(currentVideo, offsetX, offsetY, drawWidth, drawHeight)
-  }, [currentPhase, canvasWidth, canvasHeight])
+  }, [currentPhase, canvasWidth, canvasHeight, creatorVideoUrl, demoVideoUrl])
 
-  // Render caption on overlay canvas (called frequently)
-  const renderCaptionOverlay = useCallback(() => {
-    const canvas = overlayCanvasRef.current
-    const ctx = canvas?.getContext('2d', { alpha: true })
-    if (!canvas || !ctx) return
+  // Calculate caption box dimensions
+  const calculateCaptionBounds = useCallback(() => {
+    if (!caption) return { x: 0, y: 0, width: 0, height: 0 }
 
-    // Clear overlay
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight)
-
-    if (!caption) return
-
-    // Calculate text dimensions
     const charsPerLine = Math.round(35 * localStyle.widthPercent / 0.8) || 25
     const wrappedText = wrapText(caption, charsPerLine)
     const lines = wrappedText.split('\n')
@@ -147,111 +136,89 @@ function VideoCanvasPreview({
     const lineSpacing = Math.max(12, Math.floor(fontSize * 0.5))
     const padding = localStyle.paddingPx || 20
 
-    ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
+    const canvas = overlayCanvasRef.current
+    const ctx = canvas?.getContext('2d')
+    if (!ctx) return { x: 0, y: 0, width: 0, height: 0 }
 
+    ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`
     const maxLineWidth = Math.max(...lines.map(line => ctx.measureText(line).width))
-    const textWidth = maxLineWidth
     const textHeight = lines.length * fontSize + (lines.length - 1) * lineSpacing
+
+    const boxWidth = maxLineWidth + padding * 2
+    const boxHeight = textHeight + padding * 2
 
     const centerX = canvasWidth * localStyle.xPercent
     const centerY = canvasHeight * localStyle.yPercent
 
-    const boxWidth = textWidth + padding * 2
-    const boxHeight = textHeight + padding * 2
-    const boxX = centerX - boxWidth / 2
-    const boxY = centerY - boxHeight / 2
+    return {
+      x: centerX - boxWidth / 2,
+      y: centerY - boxHeight / 2,
+      width: boxWidth,
+      height: boxHeight
+    }
+  }, [caption, localStyle, canvasWidth, canvasHeight])
 
-    // Draw background box with radial gradient
-    const rgb = hexToRgb(localStyle.backgroundColor || '#000000')
+  // Render caption overlay with rotation support
+  const renderCaptionOverlay = useCallback(() => {
+    const canvas = overlayCanvasRef.current
+    const ctx = canvas?.getContext('2d', { alpha: true })
+    if (!canvas || !ctx) return
+
+    ctx.clearRect(0, 0, canvasWidth, canvasHeight)
+
+    if (!caption) return
+
+    const bounds = calculateCaptionBounds()
+    setCaptionBounds(bounds)
+
+    const centerX = canvasWidth * localStyle.xPercent
+    const centerY = canvasHeight * localStyle.yPercent
+    const rotation = (localStyle.rotation || 0) * Math.PI / 180
+
+    const charsPerLine = Math.round(35 * localStyle.widthPercent / 0.8) || 25
+    const wrappedText = wrapText(caption, charsPerLine)
+    const lines = wrappedText.split('\n')
+    const fontSize = Math.max(24, Math.floor((localStyle.fontSize || 16) * 1.5))
+    const lineSpacing = Math.max(12, Math.floor(fontSize * 0.5))
+    const padding = localStyle.paddingPx || 20
+
+    ctx.save()
+    ctx.translate(centerX, centerY)
+    ctx.rotate(rotation)
+
+    // Draw background with rounded corners
     const bgOpacity = localStyle.backgroundOpacity ?? 0.7
-    
-    // Create radial gradient from bottom center (dark blue to blue)
-    const gradientCenterX = centerX
-    const gradientCenterY = boxY + boxHeight // Bottom center
-    const gradientRadius = Math.max(boxWidth, boxHeight) * 1.2 // Slightly larger than box
-    
-    const gradient = ctx.createRadialGradient(
-      gradientCenterX, gradientCenterY, 0, // Start at bottom center
-      gradientCenterX, gradientCenterY, gradientRadius // Expand outward
-    )
-    
-    // Dark blue at center (bottom)
-    const darkBlue = `rgba(30, 58, 138, ${bgOpacity})` // Dark blue #1e3a8a
-    // Blue at edges
-    const blue = `rgba(59, 130, 246, ${bgOpacity * 0.6})` // Blue #3b82f6
-    
-    gradient.addColorStop(0, darkBlue)
-    gradient.addColorStop(1, blue)
-    
-    ctx.fillStyle = gradient
-    ctx.fillRect(boxX, boxY, boxWidth, boxHeight)
+    const rgb = hexToRgb(localStyle.backgroundColor || '#000000')
+    ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${bgOpacity})`
+
+    const boxWidth = bounds.width
+    const boxHeight = bounds.height
+    const radius = 12
+
+    ctx.beginPath()
+    ctx.roundRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight, radius)
+    ctx.fill()
 
     // Draw text
+    ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
     ctx.fillStyle = localStyle.textColor || '#ffffff'
-    const startY = centerY - (textHeight / 2) + (fontSize / 2)
+
+    const textHeight = lines.length * fontSize + (lines.length - 1) * lineSpacing
+    const startY = -textHeight / 2 + fontSize / 2
+
     lines.forEach((line, i) => {
-      const lineY = startY + i * (fontSize + lineSpacing)
-      ctx.fillText(line, centerX, lineY)
+      ctx.fillText(line, 0, startY + i * (fontSize + lineSpacing))
     })
 
-    // Always draw bounding box and handles (like a text box)
-    ctx.strokeStyle = isDragging || isResizing ? '#3b82f6' : 'rgba(255, 255, 255, 0.6)'
-    ctx.lineWidth = 2
-    ctx.strokeRect(boxX, boxY, boxWidth, boxHeight)
+    ctx.restore()
 
-    // Draw resize handles at corners
-    const handleSize = 10
-    const handles = [
-      { x: boxX, y: boxY },                           // Top-left
-      { x: boxX + boxWidth, y: boxY },                // Top-right
-      { x: boxX, y: boxY + boxHeight },               // Bottom-left
-      { x: boxX + boxWidth, y: boxY + boxHeight },    // Bottom-right
-    ]
-
-    handles.forEach(handle => {
-      ctx.fillStyle = '#ffffff'
-      ctx.strokeStyle = isDragging || isResizing ? '#3b82f6' : 'rgba(255, 255, 255, 0.9)'
-      ctx.lineWidth = 2
-
-      // Draw circular handles
-      ctx.beginPath()
-      ctx.arc(handle.x, handle.y, handleSize / 2, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.stroke()
-    })
-  }, [caption, localStyle, isDragging, isResizing, canvasWidth, canvasHeight])
-
-  // Main render loop
-  useEffect(() => {
-    const render = () => {
-      if (isPlaying) {
-        renderVideoFrame()
-      }
-      renderCaptionOverlay()
-
-      if (isPlaying) {
-        animationFrameRef.current = requestAnimationFrame(render)
-      }
+    // Draw selection UI (not rotated for easier interaction)
+    if (interactionMode !== 'none' || true) { // Always show handles for now
+      drawSelectionUI(ctx, centerX, centerY, boxWidth, boxHeight, rotation)
     }
-
-    render()
-
-    return () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current)
-      }
-    }
-  }, [isPlaying, renderVideoFrame, renderCaptionOverlay])
-
-  // Render caption when it changes (not playing)
-  useEffect(() => {
-    if (!isPlaying) {
-      renderVideoFrame()
-      renderCaptionOverlay()
-    }
-  }, [caption, localStyle, renderVideoFrame, renderCaptionOverlay, isPlaying])
+  }, [caption, localStyle, canvasWidth, canvasHeight, interactionMode, calculateCaptionBounds])
 
   const hexToRgb = (hex: string) => {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
@@ -260,54 +227,342 @@ function VideoCanvasPreview({
       : { r: 0, g: 0, b: 0 }
   }
 
-  // Check if mouse is over resize handle
-  const getResizeHandle = (mouseX: number, mouseY: number): 'tl' | 'tr' | 'bl' | 'br' | null => {
-    const charsPerLine = Math.round(35 * localStyle.widthPercent / 0.8) || 25
-    const wrappedText = wrapText(caption, charsPerLine)
-    const lines = wrappedText.split('\n')
-    const fontSize = Math.max(24, Math.floor((localStyle.fontSize || 16) * 1.5))
-    const lineSpacing = Math.max(12, Math.floor(fontSize * 0.5))
-    const padding = localStyle.paddingPx || 20
+  // Draw selection UI with handles and rotation
+  const drawSelectionUI = (
+    ctx: CanvasRenderingContext2D,
+    centerX: number,
+    centerY: number,
+    width: number,
+    height: number,
+    rotation: number
+  ) => {
+    ctx.save()
+    ctx.translate(centerX, centerY)
+    ctx.rotate(rotation)
 
-    const canvas = overlayCanvasRef.current
-    if (!canvas) return null
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
+    // Draw border
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 3
+    ctx.setLineDash([])
+    ctx.strokeRect(-width / 2, -height / 2, width, height)
 
-    ctx.font = `500 ${fontSize}px system-ui, -apple-system, sans-serif`
-    const maxLineWidth = Math.max(...lines.map(line => ctx.measureText(line).width))
-    const textWidth = maxLineWidth
-    const textHeight = lines.length * fontSize + (lines.length - 1) * lineSpacing
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 2
+    ctx.strokeRect(-width / 2, -height / 2, width, height)
 
-    const boxWidth = textWidth + padding * 2
-    const boxHeight = textHeight + padding * 2
+    // Draw corner handles
+    const handleRadius = 8
+    const corners = [
+      { x: -width / 2, y: -height / 2, id: 'tl' },
+      { x: width / 2, y: -height / 2, id: 'tr' },
+      { x: -width / 2, y: height / 2, id: 'bl' },
+      { x: width / 2, y: height / 2, id: 'br' },
+    ]
+
+    corners.forEach(corner => {
+      // White fill
+      ctx.beginPath()
+      ctx.arc(corner.x, corner.y, handleRadius, 0, Math.PI * 2)
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
+      // Blue border
+      ctx.strokeStyle = '#3b82f6'
+      ctx.lineWidth = 2
+      ctx.stroke()
+    })
+
+    // Draw rotation handle (below the box)
+    const rotateHandleDistance = 40
+    const rotateHandleY = height / 2 + rotateHandleDistance
+
+    // Line connecting to rotation handle
+    ctx.beginPath()
+    ctx.moveTo(0, height / 2)
+    ctx.lineTo(0, rotateHandleY - handleRadius)
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Rotation handle circle
+    ctx.beginPath()
+    ctx.arc(0, rotateHandleY, handleRadius, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Draw rotation icon inside handle
+    ctx.save()
+    ctx.translate(0, rotateHandleY)
+    ctx.strokeStyle = '#3b82f6'
+    ctx.lineWidth = 1.5
+    ctx.beginPath()
+    ctx.arc(0, 0, 4, -Math.PI * 0.8, Math.PI * 0.5)
+    ctx.stroke()
+    // Arrow head
+    ctx.beginPath()
+    ctx.moveTo(3, 3)
+    ctx.lineTo(4, -1)
+    ctx.lineTo(0, 2)
+    ctx.fillStyle = '#3b82f6'
+    ctx.fill()
+    ctx.restore()
+
+    ctx.restore()
+  }
+
+  // Get interaction mode based on mouse position
+  const getInteractionMode = (mouseX: number, mouseY: number): InteractionMode => {
+    if (!caption) return 'none'
 
     const centerX = canvasWidth * localStyle.xPercent
     const centerY = canvasHeight * localStyle.yPercent
-    const boxX = centerX - boxWidth / 2
-    const boxY = centerY - boxHeight / 2
+    const rotation = (localStyle.rotation || 0) * Math.PI / 180
+    const bounds = calculateCaptionBounds()
+    const width = bounds.width
+    const height = bounds.height
 
-    const hitRadius = 15 // Larger hit area for easier interaction
+    // Transform mouse position to local coordinates (accounting for rotation)
+    const dx = mouseX - centerX
+    const dy = mouseY - centerY
+    const localX = dx * Math.cos(-rotation) - dy * Math.sin(-rotation)
+    const localY = dx * Math.sin(-rotation) + dy * Math.cos(-rotation)
 
-    const handles = [
-      { x: boxX, y: boxY, id: 'tl' as const },
-      { x: boxX + boxWidth, y: boxY, id: 'tr' as const },
-      { x: boxX, y: boxY + boxHeight, id: 'bl' as const },
-      { x: boxX + boxWidth, y: boxY + boxHeight, id: 'br' as const },
+    const hitRadius = 20
+
+    // Check rotation handle first
+    const rotateHandleY = height / 2 + 40
+    const rotateDistSq = localX * localX + (localY - rotateHandleY) * (localY - rotateHandleY)
+    if (rotateDistSq < hitRadius * hitRadius) {
+      return 'rotate'
+    }
+
+    // Check corner handles
+    const corners: { x: number; y: number; mode: InteractionMode }[] = [
+      { x: -width / 2, y: -height / 2, mode: 'resize-tl' },
+      { x: width / 2, y: -height / 2, mode: 'resize-tr' },
+      { x: -width / 2, y: height / 2, mode: 'resize-bl' },
+      { x: width / 2, y: height / 2, mode: 'resize-br' },
     ]
 
-    for (const handle of handles) {
-      const distance = Math.sqrt(Math.pow(mouseX - handle.x, 2) + Math.pow(mouseY - handle.y, 2))
-      if (distance < hitRadius) {
-        return handle.id
+    for (const corner of corners) {
+      const distSq = (localX - corner.x) ** 2 + (localY - corner.y) ** 2
+      if (distSq < hitRadius * hitRadius) {
+        return corner.mode
       }
     }
 
-    return null
+    // Check if inside the box for dragging
+    if (Math.abs(localX) < width / 2 && Math.abs(localY) < height / 2) {
+      return 'drag'
+    }
+
+    return 'none'
   }
 
-  const lastClickTimeRef = useRef(0)
+  // Animation loop
+  useEffect(() => {
+    let animationId: number | null = null
 
+    const render = () => {
+      renderVideoFrame()
+      renderCaptionOverlay()
+      animationId = requestAnimationFrame(render)
+    }
+
+    animationId = requestAnimationFrame(render)
+    return () => { if (animationId) cancelAnimationFrame(animationId) }
+  }, [renderVideoFrame, renderCaptionOverlay])
+
+  // Load video durations
+  useEffect(() => {
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
+
+    const handleCreatorLoaded = () => {
+      if (creatorVideo?.duration && isFinite(creatorVideo.duration)) {
+        setInternalCreatorDuration(creatorVideo.duration)
+      }
+    }
+
+    const handleDemoLoaded = () => {
+      if (demoVideo?.duration && isFinite(demoVideo.duration)) {
+        setInternalDemoDuration(demoVideo.duration)
+      }
+    }
+
+    if (creatorVideo) {
+      creatorVideo.addEventListener('loadedmetadata', handleCreatorLoaded)
+      creatorVideo.addEventListener('durationchange', handleCreatorLoaded)
+      if (creatorVideo.readyState >= 1) handleCreatorLoaded()
+    }
+
+    if (demoVideo) {
+      demoVideo.addEventListener('loadedmetadata', handleDemoLoaded)
+      demoVideo.addEventListener('durationchange', handleDemoLoaded)
+      if (demoVideo.readyState >= 1) handleDemoLoaded()
+    }
+
+    return () => {
+      creatorVideo?.removeEventListener('loadedmetadata', handleCreatorLoaded)
+      creatorVideo?.removeEventListener('durationchange', handleCreatorLoaded)
+      demoVideo?.removeEventListener('loadedmetadata', handleDemoLoaded)
+      demoVideo?.removeEventListener('durationchange', handleDemoLoaded)
+    }
+  }, [creatorVideoUrl, demoVideoUrl])
+
+  // Apply volume
+  useEffect(() => {
+    const clampedVolume = Math.min(1, Math.max(0, volume))
+    if (creatorVideoRef.current) creatorVideoRef.current.volume = clampedVolume
+    if (demoVideoRef.current) demoVideoRef.current.volume = clampedVolume
+  }, [volume])
+
+  // Handle play/pause
+  useEffect(() => {
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
+
+    if (!creatorVideo && !demoVideo) return
+
+    const playVideo = async (video: HTMLVideoElement) => {
+      try {
+        if (video.readyState >= 2) {
+          await video.play()
+        } else {
+          await new Promise<void>((resolve) => {
+            const handler = () => { video.removeEventListener('canplay', handler); resolve() }
+            video.addEventListener('canplay', handler)
+          })
+          await video.play()
+        }
+      } catch (err) { /* Autoplay restriction */ }
+    }
+
+    if (play) {
+      if (currentPhase === 'creator' && creatorVideo && creatorVideoUrl) {
+        playVideo(creatorVideo)
+        demoVideo?.pause()
+      } else if (currentPhase === 'demo' && demoVideo && demoVideoUrl) {
+        playVideo(demoVideo)
+        creatorVideo?.pause()
+      } else if (creatorVideo && creatorVideoUrl) {
+        setCurrentPhase('creator')
+        creatorVideo.currentTime = 0
+        playVideo(creatorVideo)
+        demoVideo?.pause()
+      } else if (demoVideo && demoVideoUrl) {
+        setCurrentPhase('demo')
+        demoVideo.currentTime = 0
+        playVideo(demoVideo)
+      }
+    } else {
+      creatorVideo?.pause()
+      demoVideo?.pause()
+    }
+  }, [play, currentPhase, creatorVideoUrl, demoVideoUrl])
+
+  // Handle video ended
+  useEffect(() => {
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
+
+    const handleCreatorEnded = () => {
+      if (demoVideo && demoVideoUrl) {
+        setCurrentPhase('demo')
+        demoVideo.currentTime = 0
+        if (play) demoVideo.play().catch(() => {})
+      } else {
+        onPlayStateChange?.(false)
+      }
+    }
+
+    const handleDemoEnded = () => {
+      onPlayStateChange?.(false)
+      setCurrentPhase('creator')
+      if (creatorVideo) creatorVideo.currentTime = 0
+      if (demoVideo) demoVideo.currentTime = 0
+    }
+
+    creatorVideo?.addEventListener('ended', handleCreatorEnded)
+    demoVideo?.addEventListener('ended', handleDemoEnded)
+
+    return () => {
+      creatorVideo?.removeEventListener('ended', handleCreatorEnded)
+      demoVideo?.removeEventListener('ended', handleDemoEnded)
+    }
+  }, [play, demoVideoUrl, onPlayStateChange])
+
+  // Handle time updates
+  useEffect(() => {
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
+
+    const handleTimeUpdate = () => {
+      const creatorDur = creatorVideo?.duration || 0
+      const demoDur = demoVideo?.duration || 0
+      const totalDuration = creatorDur + demoDur
+
+      let currentTime = 0
+      if (currentPhase === 'creator' && creatorVideo) {
+        currentTime = creatorVideo.currentTime
+      } else if (currentPhase === 'demo' && demoVideo) {
+        currentTime = creatorDur + demoVideo.currentTime
+      }
+
+      if (onTimeUpdate && totalDuration > 0) {
+        onTimeUpdate(currentTime, totalDuration)
+      }
+    }
+
+    creatorVideo?.addEventListener('timeupdate', handleTimeUpdate)
+    demoVideo?.addEventListener('timeupdate', handleTimeUpdate)
+
+    return () => {
+      creatorVideo?.removeEventListener('timeupdate', handleTimeUpdate)
+      demoVideo?.removeEventListener('timeupdate', handleTimeUpdate)
+    }
+  }, [currentPhase, onTimeUpdate])
+
+  // Handle seeking
+  useEffect(() => {
+    if (typeof seekTime !== 'number' || seekTime < 0) {
+      lastSeekRef.current = null
+      return
+    }
+    if (lastSeekRef.current === seekTime) return
+
+    const creatorVideo = creatorVideoRef.current
+    const demoVideo = demoVideoRef.current
+
+    if (!creatorVideo && !demoVideo) return
+
+    const creatorDur = creatorVideo?.duration || 0
+
+    if (seekTime <= creatorDur && creatorVideo && creatorVideoUrl) {
+      creatorVideo.currentTime = Math.min(seekTime, creatorDur)
+      if (demoVideo) demoVideo.currentTime = 0
+      setCurrentPhase('creator')
+      if (play) creatorVideo.play().catch(() => {})
+      else creatorVideo.pause()
+      demoVideo?.pause()
+    } else if (demoVideo && demoVideoUrl) {
+      const demoTime = seekTime - creatorDur
+      demoVideo.currentTime = Math.max(0, Math.min(demoTime, demoVideo.duration || 0))
+      if (creatorVideo) {
+        creatorVideo.currentTime = creatorDur
+        creatorVideo.pause()
+      }
+      setCurrentPhase('demo')
+      if (play) demoVideo.play().catch(() => {})
+      else demoVideo.pause()
+    }
+
+    lastSeekRef.current = seekTime
+  }, [seekTime, play, creatorVideoUrl, demoVideoUrl])
+
+  // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     const canvas = overlayCanvasRef.current
     if (!canvas) return
@@ -318,48 +573,28 @@ function VideoCanvasPreview({
     const mouseX = (e.clientX - rect.left) * scaleX
     const mouseY = (e.clientY - rect.top) * scaleY
 
-    const handle = getResizeHandle(mouseX, mouseY)
+    const mode = getInteractionMode(mouseX, mouseY)
+    if (mode === 'none') return
 
-    if (handle) {
-      setIsResizing(true)
-      setResizeHandle(handle)
-      dragStartRef.current = {
-        x: mouseX,
-        y: mouseY,
-        startX: localStyle.xPercent,
-        startY: localStyle.yPercent,
-        startWidth: localStyle.widthPercent,
-        startFontSize: localStyle.fontSize || 16
-      }
-    } else {
-      setIsDragging(true)
-      dragStartRef.current = {
-        x: mouseX,
-        y: mouseY,
-        startX: localStyle.xPercent,
-        startY: localStyle.yPercent,
-        startWidth: localStyle.widthPercent,
-        startFontSize: localStyle.fontSize || 16
-      }
+    setInteractionMode(mode)
+
+    const centerX = canvasWidth * localStyle.xPercent
+    const centerY = canvasHeight * localStyle.yPercent
+
+    dragStartRef.current = {
+      x: mouseX,
+      y: mouseY,
+      startX: localStyle.xPercent,
+      startY: localStyle.yPercent,
+      startWidth: localStyle.widthPercent,
+      startFontSize: localStyle.fontSize || 16,
+      startRotation: localStyle.rotation || 0,
+      centerX,
+      centerY
     }
-
-    renderCaptionOverlay()
-  }
-
-  const handleDoubleClick = (e: React.MouseEvent) => {
-    console.log('🖱️ Double-click detected!')
-    e.preventDefault()
-    e.stopPropagation()
-    console.log('Setting isEditingText to true, caption:', caption)
-    setIsEditingText(true)
-    setEditText(caption)
-    setIsDragging(false)
-    setIsResizing(false)
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging && !isResizing) return
-
     const canvas = overlayCanvasRef.current
     if (!canvas) return
 
@@ -369,175 +604,71 @@ function VideoCanvasPreview({
     const mouseX = (e.clientX - rect.left) * scaleX
     const mouseY = (e.clientY - rect.top) * scaleY
 
-    if (isDragging) {
+    // Update cursor based on hover
+    if (interactionMode === 'none') {
+      const hoverMode = getInteractionMode(mouseX, mouseY)
+      canvas.style.cursor = getCursor(hoverMode)
+      return
+    }
+
+    if (interactionMode === 'drag') {
       const deltaX = (mouseX - dragStartRef.current.x) / canvasWidth
       const deltaY = (mouseY - dragStartRef.current.y) / canvasHeight
 
-      const newX = Math.max(0.1, Math.min(0.9, dragStartRef.current.startX + deltaX))
-      const newY = Math.max(0.1, Math.min(0.9, dragStartRef.current.startY + deltaY))
+      const newX = Math.max(0.05, Math.min(0.95, dragStartRef.current.startX + deltaX))
+      const newY = Math.max(0.05, Math.min(0.95, dragStartRef.current.startY + deltaY))
 
       setLocalStyle(prev => ({ ...prev, xPercent: newX, yPercent: newY }))
-    } else if (isResizing && resizeHandle) {
+    } else if (interactionMode === 'rotate') {
+      const centerX = dragStartRef.current.centerX
+      const centerY = dragStartRef.current.centerY
+
+      // Calculate angle from center to current mouse position
+      const currentAngle = Math.atan2(mouseY - centerY, mouseX - centerX) * 180 / Math.PI
+      const startAngle = Math.atan2(dragStartRef.current.y - centerY, dragStartRef.current.x - centerX) * 180 / Math.PI
+
+      // Calculate rotation delta from start position
+      const deltaAngle = currentAngle - startAngle
+      const newRotation = dragStartRef.current.startRotation + deltaAngle
+
+      setLocalStyle(prev => ({ ...prev, rotation: newRotation }))
+    } else if (interactionMode.startsWith('resize-')) {
       const deltaX = mouseX - dragStartRef.current.x
       const deltaY = mouseY - dragStartRef.current.y
 
-      let newWidth = dragStartRef.current.startWidth
-      let newFontSize = dragStartRef.current.startFontSize
+      // Scale based on diagonal movement
+      const scaleFactor = 1 + (deltaX + deltaY) / 500
+      const newFontSize = Math.max(12, Math.min(48, dragStartRef.current.startFontSize * scaleFactor))
 
-      if (resizeHandle === 'tr' || resizeHandle === 'br') {
-        newWidth = dragStartRef.current.startWidth + (deltaX / canvasWidth)
-      } else if (resizeHandle === 'tl' || resizeHandle === 'bl') {
-        newWidth = dragStartRef.current.startWidth - (deltaX / canvasWidth)
-      }
-
-      if (resizeHandle === 'br' || resizeHandle === 'bl') {
-        newFontSize = dragStartRef.current.startFontSize + (deltaY / 15)
-      } else if (resizeHandle === 'tr' || resizeHandle === 'tl') {
-        newFontSize = dragStartRef.current.startFontSize - (deltaY / 15)
-      }
-
-      newWidth = Math.max(0.3, Math.min(0.95, newWidth))
-      newFontSize = Math.max(12, Math.min(48, newFontSize))
-
-      setLocalStyle(prev => ({ ...prev, widthPercent: newWidth, fontSize: newFontSize }))
+      setLocalStyle(prev => ({ ...prev, fontSize: newFontSize }))
     }
-
-    renderCaptionOverlay()
   }
 
   const handleMouseUp = () => {
-    if (isDragging || isResizing) {
-      // Save final position to parent
-      if (onCaptionStyleChange) {
-        onCaptionStyleChange({
-          xPercent: localStyle.xPercent,
-          yPercent: localStyle.yPercent,
-          widthPercent: localStyle.widthPercent,
-          fontSize: localStyle.fontSize
-        })
-      }
+    if (interactionMode !== 'none') {
+      onCaptionStyleChange?.({
+        xPercent: localStyle.xPercent,
+        yPercent: localStyle.yPercent,
+        widthPercent: localStyle.widthPercent,
+        fontSize: localStyle.fontSize,
+        rotation: localStyle.rotation
+      })
     }
-
-    setIsDragging(false)
-    setIsResizing(false)
-    setResizeHandle(null)
-    renderCaptionOverlay()
+    setInteractionMode('none')
   }
 
-  const handlePlayPause = () => {
-    const currentVideo =
-      currentPhase === 'creator' ? creatorVideoRef.current : demoVideoRef.current
 
-    if (!currentVideo) return
-
-    if (isPlaying) {
-      currentVideo.pause()
-      setIsPlaying(false)
-      onPlayStateChange?.(false)
-    } else {
-      currentVideo.play()
-      setIsPlaying(true)
-      onPlayStateChange?.(true)
+  const getCursor = (mode: InteractionMode): string => {
+    switch (mode) {
+      case 'drag': return 'move'
+      case 'rotate': return 'grab'
+      case 'resize-tl':
+      case 'resize-br': return 'nwse-resize'
+      case 'resize-tr':
+      case 'resize-bl': return 'nesw-resize'
+      default: return 'default'
     }
   }
-
-  // Respond to external play control
-  useEffect(() => {
-    const currentVideo =
-      currentPhase === 'creator' ? creatorVideoRef.current : demoVideoRef.current
-
-    if (!currentVideo) return
-
-    if (play && !isPlaying) {
-      currentVideo.play()
-      setIsPlaying(true)
-    } else if (!play && isPlaying) {
-      currentVideo.pause()
-      setIsPlaying(false)
-    }
-  }, [play, isPlaying, currentPhase])
-
-  // Handle external seek control
-  useEffect(() => {
-    if (seekTime === undefined) return
-    
-    const creatorVideo = creatorVideoRef.current
-    const demoVideo = demoVideoRef.current
-    
-    if (!creatorVideo || !demoVideo) return
-    
-    if (seekTime <= creatorDuration) {
-      // Seek in creator video
-      creatorVideo.currentTime = seekTime
-      demoVideo.currentTime = 0
-      setCurrentPhase('creator')
-    } else {
-      // Seek in demo video
-      creatorVideo.currentTime = creatorDuration
-      demoVideo.currentTime = seekTime - creatorDuration
-      setCurrentPhase('demo')
-    }
-  }, [seekTime, creatorDuration])
-
-  // Expose play/pause control via callback
-  useEffect(() => {
-    // Notify parent of time updates
-    const currentVideo =
-      currentPhase === 'creator' ? creatorVideoRef.current : demoVideoRef.current
-
-    if (!currentVideo) return
-
-    const handleTimeUpdate = () => {
-      const creatorVideo = creatorVideoRef.current
-      const demoVideo = demoVideoRef.current
-      
-      if (!creatorVideo || !demoVideo) return
-      
-      let totalTime = 0
-      if (currentPhase === 'creator') {
-        totalTime = creatorVideo.currentTime
-      } else {
-        totalTime = creatorDuration + demoVideo.currentTime
-      }
-      
-      const totalDuration = (creatorVideo.duration || 0) + (demoVideo.duration || 0)
-      onTimeUpdate?.(totalTime, totalDuration)
-    }
-
-    currentVideo.addEventListener('timeupdate', handleTimeUpdate)
-    return () => {
-      currentVideo.removeEventListener('timeupdate', handleTimeUpdate)
-    }
-  }, [currentPhase, onTimeUpdate, creatorDuration])
-
-  // Video phase transitions
-  useEffect(() => {
-    const creatorVideo = creatorVideoRef.current
-    const demoVideo = demoVideoRef.current
-
-    if (!creatorVideo || !demoVideo) return
-
-    const handleCreatorEnded = () => {
-      setCurrentPhase('demo')
-      demoVideo.currentTime = 0
-      if (isPlaying) demoVideo.play()
-    }
-
-    const handleDemoEnded = () => {
-      setIsPlaying(false)
-      setCurrentPhase('creator')
-      creatorVideo.currentTime = 0
-      demoVideo.currentTime = 0
-    }
-
-    creatorVideo.addEventListener('ended', handleCreatorEnded)
-    demoVideo.addEventListener('ended', handleDemoEnded)
-
-    return () => {
-      creatorVideo.removeEventListener('ended', handleCreatorEnded)
-      demoVideo.removeEventListener('ended', handleDemoEnded)
-    }
-  }, [isPlaying])
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -548,6 +679,7 @@ function VideoCanvasPreview({
           src={creatorVideoUrl}
           style={{ display: 'none' }}
           playsInline
+          muted={false}
           preload="auto"
         />
       )}
@@ -557,13 +689,13 @@ function VideoCanvasPreview({
           src={demoVideoUrl}
           style={{ display: 'none' }}
           playsInline
+          muted={false}
           preload="auto"
         />
       )}
 
       {/* Canvas layers */}
       <div style={{ position: 'relative', width: '100%', height: '100%', aspectRatio: aspectRatio.replace(':', '/') }}>
-        {/* Video canvas (bottom layer) */}
         <canvas
           ref={canvasRef}
           width={canvasWidth}
@@ -579,7 +711,6 @@ function VideoCanvasPreview({
           }}
         />
 
-        {/* Overlay canvas (top layer - captions + handles) */}
         <canvas
           ref={overlayCanvasRef}
           width={canvasWidth}
@@ -588,103 +719,18 @@ function VideoCanvasPreview({
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
-          onDoubleClick={handleDoubleClick}
           style={{
             position: 'absolute',
             top: 0,
             left: 0,
             width: '100%',
             height: '100%',
-            cursor: isDragging
-              ? 'grabbing'
-              : isResizing
-              ? resizeHandle === 'tl' || resizeHandle === 'br'
-                ? 'nwse-resize'
-                : 'nesw-resize'
-              : 'move',
             borderRadius: '8px',
             pointerEvents: 'auto',
           }}
         />
 
-        {/* Inline Text Editor - Editable caption directly on video */}
-        {isEditingText && (() => {
-          console.log('✏️ Rendering text editor with text:', editText)
-
-          // Calculate caption position for inline editing
-          const charsPerLine = Math.round(35 * localStyle.widthPercent / 0.8) || 25
-          const wrappedText = wrapText(editText, charsPerLine)
-          const lines = wrappedText.split('\n')
-          const fontSize = Math.max(24, Math.floor((localStyle.fontSize || 16) * 1.5))
-          const lineSpacing = Math.max(12, Math.floor(fontSize * 0.5))
-          const padding = localStyle.paddingPx || 20
-
-          const rect = overlayCanvasRef.current?.getBoundingClientRect()
-          if (!rect) {
-            console.log('❌ No rect available for overlay canvas')
-            return null
-          }
-
-          const scaleX = rect.width / canvasWidth
-          const scaleY = rect.height / canvasHeight
-
-          const centerX = rect.width * localStyle.xPercent
-          const centerY = rect.height * localStyle.yPercent
-
-          // Approximate text dimensions
-          const textWidth = charsPerLine * (fontSize * 0.6) // rough estimate
-          const textHeight = lines.length * fontSize + (lines.length - 1) * lineSpacing
-          const boxWidth = textWidth + padding * 2
-          const boxHeight = textHeight + padding * 2
-
-          console.log('📐 Editor position:', { centerX, centerY, boxWidth, boxHeight })
-
-          return (
-            <textarea
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              onBlur={() => {
-                onCaptionChange?.(editText)
-                setIsEditingText(false)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setIsEditingText(false)
-                } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-                  onCaptionChange?.(editText)
-                  setIsEditingText(false)
-                }
-              }}
-              autoFocus
-              style={{
-                position: 'absolute',
-                left: `${centerX - boxWidth / 2}px`,
-                top: `${centerY - boxHeight / 2}px`,
-                width: `${boxWidth}px`,
-                minHeight: `${boxHeight}px`,
-                backgroundColor: `${localStyle.backgroundColor}${Math.round((localStyle.backgroundOpacity ?? 0.7) * 255).toString(16).padStart(2, '0')}`,
-                color: localStyle.textColor || '#ffffff',
-                fontSize: `${fontSize * scaleY}px`,
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                fontWeight: '500',
-                textAlign: 'center',
-                border: '2px solid #3b82f6',
-                borderRadius: '8px',
-                padding: `${padding * scaleY}px`,
-                outline: 'none',
-                resize: 'none',
-                zIndex: 1000,
-                lineHeight: '1.4',
-                boxShadow: '0 0 0 4px rgba(59, 130, 246, 0.2)',
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          )
-        })()}
       </div>
-
     </div>
   )
 }
-
-export default VideoCanvasPreview

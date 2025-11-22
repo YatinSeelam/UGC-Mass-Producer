@@ -50,6 +50,7 @@ export interface CaptionStyle {
   yPercent: number; // 0-1, center of caption box vertically (0 = top, 0.5 = center, 1 = bottom)
   widthPercent: number; // 0-1, width of caption box (0.8 = 80% of video width)
   paddingPx: number; // Padding in pixels (for background box)
+  rotation?: number; // Rotation in degrees (0-360)
   // Legacy fields for backward compatibility (will be migrated)
   position?: 'bottom' | 'center' | 'top' | 'custom';
   customX?: number;

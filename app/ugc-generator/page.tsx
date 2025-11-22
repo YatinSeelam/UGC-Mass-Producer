@@ -37,6 +37,7 @@ export default function UGCGeneratorPage() {
       yPercent: 0.85, // Near bottom (85% down)
       widthPercent: 0.8, // 80% of video width
       paddingPx: 20,
+      rotation: 0, // No rotation by default
       position: 'bottom', // Legacy field
     },
     variants: [],

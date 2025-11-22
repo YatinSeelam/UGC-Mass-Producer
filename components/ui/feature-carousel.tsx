@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 // --- TYPES ---
-interface HeroProps extends React.HTMLAttributes<HTMLDivElement> {
+interface HeroProps extends Omit<React.HTMLAttributes<HTMLDivElement>, 'title'> {
   title: React.ReactNode
   subtitle: string
   images: { src: string; alt: string; }[]
