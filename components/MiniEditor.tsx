@@ -48,14 +48,18 @@ export default function MiniEditor({
   const [seekTarget, setSeekTarget] = useState<number | null>(null)
 
   const [captionText, setCaptionText] = useState(caption)
+  const lastPropCaptionRef = useRef(caption)
 
   const previewAreaRef = useRef<HTMLDivElement>(null)
   const previewBoxRef = useRef<HTMLDivElement>(null)
   const timelineContainerRef = useRef<HTMLDivElement>(null)
 
-  // sync caption text with prop
+  // sync caption text with prop (when prop changes from parent)
   useEffect(() => {
-    setCaptionText(caption)
+    if (caption !== lastPropCaptionRef.current) {
+      lastPropCaptionRef.current = caption
+      setCaptionText(caption)
+    }
   }, [caption])
 
   // resize preview based on aspect ratio
@@ -183,9 +187,12 @@ export default function MiniEditor({
     setZoomLevel(prev => Math.min(2.0, Math.max(0.8, prev + delta)))
   }, [])
 
-  // push caption text up to parent if needed
+  // push caption text up to parent when it changes (from VideoCanvasPreview editing)
   useEffect(() => {
-    if (onCaptionChange) onCaptionChange(captionText)
+    // Only call onCaptionChange if captionText changed from user editing (not from prop update)
+    if (onCaptionChange && captionText !== lastPropCaptionRef.current) {
+      onCaptionChange(captionText)
+    }
   }, [captionText, onCaptionChange])
 
   const progressPercent =
@@ -195,11 +202,11 @@ export default function MiniEditor({
 
   return (
     <>
-      <div className="w-full max-w-[500px] rounded-[16px] bg-white shadow-sm border border-slate-200/50 px-4 pt-4 pb-3">
+      <div className="w-full h-full rounded-[16px] bg-white shadow-sm border border-slate-200/50 px-4 pt-4 pb-3 flex flex-col">
         {/* Preview Area */}
         <div
           ref={previewAreaRef}
-          className="mb-3 flex h-[20rem] items-center justify-center rounded-[12px] bg-slate-100 overflow-hidden"
+          className="mb-3 flex flex-1 items-center justify-center rounded-[12px] bg-slate-100 overflow-hidden min-h-0"
           onWheel={handleWheel}
         >
           <div
@@ -247,49 +254,54 @@ export default function MiniEditor({
         </div>
 
         {/* Timeline */}
-        <div className="mb-2.5 px-0.5">
+        <div className="mb-3 px-1">
           <div
             ref={timelineContainerRef}
-            className="group relative h-2 cursor-pointer rounded-full bg-slate-200 transition-all duration-150 ease-out hover:h-2.5"
+            className="group relative h-1.5 cursor-pointer rounded-full bg-slate-200/60 transition-all duration-200 ease-out hover:h-2"
             onMouseDown={handleTimelineMouseDown}
+            style={{
+              background: 'linear-gradient(to right, #e2e8f0 0%, #cbd5e1 100%)',
+            }}
           >
             <div
-              className="pointer-events-none absolute left-0 top-0 h-full rounded-full bg-blue-500 transition-all duration-75 ease-linear"
+              className="pointer-events-none absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-75 ease-linear shadow-sm"
               style={{ width: `${progressPercent}%` }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500 shadow-[0_0_0_3px_rgba(59,130,246,0.4)] transition-transform duration-150 ease-out group-hover:scale-110"
+              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-blue-500 shadow-[0_2px_8px_rgba(59,130,246,0.3)] transition-all duration-200 ease-out group-hover:scale-125 group-hover:shadow-[0_4px_12px_rgba(59,130,246,0.4)]"
               style={{ left: `${progressPercent}%` }}
             />
           </div>
-          <div className="mt-1.5 text-center font-mono text-[10px] text-slate-500">
-            {formatTime(Math.max(0, currentTime))} / {formatTime(Math.max(0, totalDuration))}
+          <div className="mt-2 text-center font-mono text-[11px] font-semibold text-slate-600 tracking-wide">
+            <span className="text-slate-700">{formatTime(Math.max(0, currentTime))}</span>
+            <span className="mx-1.5 text-slate-400">/</span>
+            <span className="text-slate-500">{formatTime(Math.max(0, totalDuration))}</span>
           </div>
         </div>
 
         {/* Control Bar */}
-        <div className="flex items-center justify-between rounded-[12px] bg-slate-200 px-3 py-1.5 gap-2 overflow-hidden border border-slate-300/40">
+        <div className="flex items-center justify-between rounded-xl bg-gradient-to-r from-slate-50 to-slate-100/50 px-4 py-2 gap-3 overflow-hidden border border-slate-200/60 shadow-sm">
           <button
             onClick={() => onPlayStateChange(!isPlaying)}
-            className="flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-sm transition-transform duration-150 ease-out hover:scale-105 flex-shrink-0"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-md transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg flex-shrink-0 border border-slate-200/50"
             type="button"
           >
             {isPlaying ? (
-              <div className="flex gap-0.5">
-                <div className="h-3 w-0.5 bg-slate-900" />
-                <div className="h-3 w-0.5 bg-slate-900" />
+              <div className="flex gap-1">
+                <div className="h-3.5 w-0.5 bg-slate-700 rounded-full" />
+                <div className="h-3.5 w-0.5 bg-slate-700 rounded-full" />
               </div>
             ) : (
-              <span className="ml-0.5 inline-block border-l-[7px] border-y-[4px] border-l-slate-900 border-y-transparent" />
+              <span className="ml-0.5 inline-block border-l-[8px] border-y-[5px] border-l-slate-700 border-y-transparent" />
             )}
           </button>
 
-          <div className="flex items-center gap-1.5 flex-shrink-0">
+          <div className="flex items-center gap-2 flex-shrink-0">
             {/* Volume */}
-            <div className="flex items-center gap-1 rounded-full border border-slate-300/60 bg-slate-50 px-2 py-0.5">
+            <div className="flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 backdrop-blur-sm px-2.5 py-1.5 shadow-sm">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-3.5 w-3.5 text-slate-700"
+                className="h-4 w-4 text-slate-600"
                 viewBox="0 0 20 20"
                 fill="currentColor"
               >
@@ -306,10 +318,10 @@ export default function MiniEditor({
                 style={{
                   WebkitAppearance: 'none',
                   appearance: 'none',
-                  width: '60px',
-                  height: '3px',
+                  width: '65px',
+                  height: '4px',
                   borderRadius: '999px',
-                  background: 'rgb(209, 213, 219)',
+                  background: 'linear-gradient(to right, #cbd5e1 0%, #94a3b8 100%)',
                   outline: 'none',
                 }}
               />
@@ -326,14 +338,14 @@ export default function MiniEditor({
                   else if (val === '4x5') onAspectRatioChange('4:5')
                   else onAspectRatioChange('9:16')
                 }}
-                className="appearance-none rounded-full border border-slate-300/60 bg-slate-50 px-2.5 py-1 pr-6 text-[11px] font-medium text-slate-800 outline-none transition-colors duration-150 ease-out hover:border-blue-500 hover:bg-slate-100"
+                className="appearance-none rounded-full border border-slate-200/80 bg-white/80 backdrop-blur-sm px-3 py-1.5 pr-7 text-[11px] font-semibold text-slate-700 outline-none transition-all duration-200 ease-out hover:border-blue-400 hover:bg-white hover:shadow-sm cursor-pointer"
               >
                 <option value="1x1">1:1</option>
                 <option value="16x9">16:9</option>
                 <option value="9x16">9:16</option>
                 <option value="4x5">4:5</option>
               </select>
-              <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-slate-500">
+              <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-slate-500">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-3.5 w-3.5"
@@ -356,22 +368,32 @@ export default function MiniEditor({
         .volume-range::-webkit-slider-thumb {
           -webkit-appearance: none;
           appearance: none;
-          width: 14px;
-          height: 14px;
+          width: 16px;
+          height: 16px;
           border-radius: 999px;
-          background: rgb(37, 99, 235);
+          background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
           cursor: pointer;
-          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
-          border: 2px solid white;
+          box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4), 0 0 0 3px rgba(59, 130, 246, 0.15);
+          border: 2.5px solid white;
+          transition: all 0.2s ease;
+        }
+        .volume-range::-webkit-slider-thumb:hover {
+          transform: scale(1.15);
+          box-shadow: 0 3px 8px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.2);
         }
         .volume-range::-moz-range-thumb {
-          width: 14px;
-          height: 14px;
+          width: 16px;
+          height: 16px;
           border-radius: 999px;
-          background: rgb(37, 99, 235);
+          background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
           cursor: pointer;
-          box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
-          border: 2px solid white;
+          box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4), 0 0 0 3px rgba(59, 130, 246, 0.15);
+          border: 2.5px solid white;
+          transition: all 0.2s ease;
+        }
+        .volume-range::-moz-range-thumb:hover {
+          transform: scale(1.15);
+          box-shadow: 0 3px 8px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.2);
         }
       `}</style>
     </>

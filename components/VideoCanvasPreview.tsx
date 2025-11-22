@@ -64,6 +64,9 @@ export default function VideoCanvasPreview({
   const [internalDemoDuration, setInternalDemoDuration] = useState(0)
   const [captionBounds, setCaptionBounds] = useState({ x: 0, y: 0, width: 0, height: 0 })
 
+  // Track when we just finished interacting to prevent immediate reset
+  const justFinishedInteractionRef = useRef(false)
+
   const dragStartRef = useRef({
     x: 0, y: 0,
     startX: 0, startY: 0,
@@ -72,9 +75,20 @@ export default function VideoCanvasPreview({
     centerX: 0, centerY: 0
   })
 
+
   // Sync local style with props when not interacting
+  // But skip if we just finished an interaction (let parent update first)
   useEffect(() => {
-    if (interactionMode === 'none') setLocalStyle(captionStyle)
+    if (interactionMode === 'none' && !justFinishedInteractionRef.current) {
+      setLocalStyle(captionStyle)
+    }
+    // Clear the flag after a short delay to allow parent to update
+    if (justFinishedInteractionRef.current) {
+      const timer = setTimeout(() => {
+        justFinishedInteractionRef.current = false
+      }, 100)
+      return () => clearTimeout(timer)
+    }
   }, [captionStyle, interactionMode])
 
   // Render video frame to canvas
@@ -218,6 +232,8 @@ export default function VideoCanvasPreview({
     if (interactionMode !== 'none' || true) { // Always show handles for now
       drawSelectionUI(ctx, centerX, centerY, boxWidth, boxHeight, rotation)
     }
+
+    // Edit button removed - editing only via textarea in Step4Review
   }, [caption, localStyle, canvasWidth, canvasHeight, interactionMode, calculateCaptionBounds])
 
   const hexToRgb = (hex: string) => {
@@ -276,7 +292,7 @@ export default function VideoCanvasPreview({
     const rotateHandleY = height / 2 + rotateHandleDistance
 
     // Line connecting to rotation handle
-    ctx.beginPath()
+      ctx.beginPath()
     ctx.moveTo(0, height / 2)
     ctx.lineTo(0, rotateHandleY - handleRadius)
     ctx.strokeStyle = '#3b82f6'
@@ -286,20 +302,20 @@ export default function VideoCanvasPreview({
     // Rotation handle circle
     ctx.beginPath()
     ctx.arc(0, rotateHandleY, handleRadius, 0, Math.PI * 2)
-    ctx.fillStyle = '#ffffff'
-    ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.fill()
     ctx.strokeStyle = '#3b82f6'
-    ctx.lineWidth = 2
-    ctx.stroke()
+      ctx.lineWidth = 2
+      ctx.stroke()
 
     // Draw rotation icon inside handle
     ctx.save()
     ctx.translate(0, rotateHandleY)
     ctx.strokeStyle = '#3b82f6'
     ctx.lineWidth = 1.5
-    ctx.beginPath()
+      ctx.beginPath()
     ctx.arc(0, 0, 4, -Math.PI * 0.8, Math.PI * 0.5)
-    ctx.stroke()
+      ctx.stroke()
     // Arrow head
     ctx.beginPath()
     ctx.moveTo(3, 3)
@@ -366,12 +382,12 @@ export default function VideoCanvasPreview({
     let animationId: number | null = null
 
     const render = () => {
-      renderVideoFrame()
-      renderCaptionOverlay()
+        renderVideoFrame()
+        renderCaptionOverlay()
       animationId = requestAnimationFrame(render)
-    }
-
-    animationId = requestAnimationFrame(render)
+      }
+      
+      animationId = requestAnimationFrame(render)
     return () => { if (animationId) cancelAnimationFrame(animationId) }
   }, [renderVideoFrame, renderCaptionOverlay])
 
@@ -423,7 +439,7 @@ export default function VideoCanvasPreview({
   useEffect(() => {
     const creatorVideo = creatorVideoRef.current
     const demoVideo = demoVideoRef.current
-
+    
     if (!creatorVideo && !demoVideo) return
 
     const playVideo = async (video: HTMLVideoElement) => {
@@ -449,12 +465,12 @@ export default function VideoCanvasPreview({
         creatorVideo?.pause()
       } else if (creatorVideo && creatorVideoUrl) {
         setCurrentPhase('creator')
-        creatorVideo.currentTime = 0
+      creatorVideo.currentTime = 0
         playVideo(creatorVideo)
         demoVideo?.pause()
       } else if (demoVideo && demoVideoUrl) {
         setCurrentPhase('demo')
-        demoVideo.currentTime = 0
+      demoVideo.currentTime = 0
         playVideo(demoVideo)
       }
     } else {
@@ -467,7 +483,7 @@ export default function VideoCanvasPreview({
   useEffect(() => {
     const creatorVideo = creatorVideoRef.current
     const demoVideo = demoVideoRef.current
-
+    
     const handleCreatorEnded = () => {
       if (demoVideo && demoVideoUrl) {
         setCurrentPhase('demo')
@@ -562,8 +578,11 @@ export default function VideoCanvasPreview({
     lastSeekRef.current = seekTime
   }, [seekTime, play, creatorVideoUrl, demoVideoUrl])
 
+  // Edit button functionality removed - editing only via textarea in Step4Review
+
   // Mouse handlers
   const handleMouseDown = (e: React.MouseEvent) => {
+    
     const canvas = overlayCanvasRef.current
     if (!canvas) return
 
@@ -573,6 +592,8 @@ export default function VideoCanvasPreview({
     const mouseX = (e.clientX - rect.left) * scaleX
     const mouseY = (e.clientY - rect.top) * scaleY
 
+    // Edit button click handling removed
+
     const mode = getInteractionMode(mouseX, mouseY)
     if (mode === 'none') return
 
@@ -581,12 +602,12 @@ export default function VideoCanvasPreview({
     const centerX = canvasWidth * localStyle.xPercent
     const centerY = canvasHeight * localStyle.yPercent
 
-    dragStartRef.current = {
-      x: mouseX,
-      y: mouseY,
-      startX: localStyle.xPercent,
-      startY: localStyle.yPercent,
-      startWidth: localStyle.widthPercent,
+      dragStartRef.current = {
+        x: mouseX,
+        y: mouseY,
+        startX: localStyle.xPercent,
+        startY: localStyle.yPercent,
+        startWidth: localStyle.widthPercent,
       startFontSize: localStyle.fontSize || 16,
       startRotation: localStyle.rotation || 0,
       centerX,
@@ -633,11 +654,21 @@ export default function VideoCanvasPreview({
 
       setLocalStyle(prev => ({ ...prev, rotation: newRotation }))
     } else if (interactionMode.startsWith('resize-')) {
-      const deltaX = mouseX - dragStartRef.current.x
-      const deltaY = mouseY - dragStartRef.current.y
+      const centerX = dragStartRef.current.centerX
+      const centerY = dragStartRef.current.centerY
 
-      // Scale based on diagonal movement
-      const scaleFactor = 1 + (deltaX + deltaY) / 500
+      // Calculate distance from center for both start and current positions
+      const startDist = Math.sqrt(
+        Math.pow(dragStartRef.current.x - centerX, 2) +
+        Math.pow(dragStartRef.current.y - centerY, 2)
+      )
+      const currentDist = Math.sqrt(
+        Math.pow(mouseX - centerX, 2) +
+        Math.pow(mouseY - centerY, 2)
+      )
+
+      // Scale based on ratio of distances (pulling handle away from center = bigger)
+      const scaleFactor = startDist > 0 ? currentDist / startDist : 1
       const newFontSize = Math.max(12, Math.min(48, dragStartRef.current.startFontSize * scaleFactor))
 
       setLocalStyle(prev => ({ ...prev, fontSize: newFontSize }))
@@ -646,16 +677,21 @@ export default function VideoCanvasPreview({
 
   const handleMouseUp = () => {
     if (interactionMode !== 'none') {
+      // Mark that we just finished interacting - prevents the useEffect from resetting localStyle
+      // before the parent has a chance to update captionStyle with our changes
+      justFinishedInteractionRef.current = true
+
       onCaptionStyleChange?.({
-        xPercent: localStyle.xPercent,
-        yPercent: localStyle.yPercent,
-        widthPercent: localStyle.widthPercent,
+          xPercent: localStyle.xPercent,
+          yPercent: localStyle.yPercent,
+          widthPercent: localStyle.widthPercent,
         fontSize: localStyle.fontSize,
         rotation: localStyle.rotation
       })
     }
     setInteractionMode('none')
   }
+
 
 
   const getCursor = (mode: InteractionMode): string => {
@@ -708,6 +744,7 @@ export default function VideoCanvasPreview({
             height: '100%',
             backgroundColor: '#000',
             borderRadius: '8px',
+            zIndex: 1,
           }}
         />
 
@@ -727,8 +764,10 @@ export default function VideoCanvasPreview({
             height: '100%',
             borderRadius: '8px',
             pointerEvents: 'auto',
+            zIndex: 2,
           }}
         />
+
 
       </div>
     </div>

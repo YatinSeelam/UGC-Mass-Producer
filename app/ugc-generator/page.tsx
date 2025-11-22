@@ -52,14 +52,25 @@ export default function UGCGeneratorPage() {
   }
 
   const updateConfig = (config: Partial<ExperimentData>) => {
-    console.log('📊 updateConfig called with:', config)
-    if (config.captionStyle) {
-      console.log('  → captionStyle update:', config.captionStyle)
-    }
     setExperimentData(prev => {
-      const updated = { ...prev, ...config }
-      console.log('  → New experimentData.captionStyle:', updated.captionStyle)
-      return updated
+      // Only update if something actually changed
+      if (config.captionStyle) {
+        const prevStyle = prev.captionStyle
+        const newStyle = config.captionStyle
+        // Deep comparison of captionStyle properties
+        const styleChanged = 
+          prevStyle.textColor !== newStyle.textColor ||
+          prevStyle.backgroundColor !== newStyle.backgroundColor ||
+          prevStyle.backgroundOpacity !== newStyle.backgroundOpacity ||
+          prevStyle.fontSize !== newStyle.fontSize ||
+          prevStyle.xPercent !== newStyle.xPercent ||
+          prevStyle.yPercent !== newStyle.yPercent ||
+          prevStyle.widthPercent !== newStyle.widthPercent ||
+          prevStyle.paddingPx !== newStyle.paddingPx ||
+          (prevStyle.rotation || 0) !== (newStyle.rotation || 0)
+        if (!styleChanged) return prev
+      }
+      return { ...prev, ...config }
     })
   }
 

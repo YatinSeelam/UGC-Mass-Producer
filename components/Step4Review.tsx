@@ -1,10 +1,12 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Variant, CaptionStyle, DemoVideo } from '@/types'
 import { CREATOR_TEMPLATES } from '@/lib/constants'
+import { wrapText } from '@/lib/textUtils'
 import JSZip from 'jszip'
-import VideoCanvasPreview from './VideoCanvasPreview'
+import MiniEditor from './MiniEditor'
+import { Play, Download, ChevronLeft, Check, Pencil } from 'lucide-react'
 
 interface Step4ReviewProps {
   variants: Variant[]
@@ -15,15 +17,213 @@ interface Step4ReviewProps {
   aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5'
 }
 
-// Helper function to format time in MM:SS
-const formatTime = (seconds: number): string => {
-  if (isNaN(seconds) || seconds === 0) return '0:00'
-  const mins = Math.floor(seconds / 60)
-  const secs = Math.floor(seconds % 60)
-  return `${mins}:${secs.toString().padStart(2, '0')}`
+// Thumbnail Canvas Component - Renders video frame with embedded caption
+function ThumbnailCanvas({ 
+  videoUrl, 
+  caption, 
+  captionStyle, 
+  aspectRatio 
+}: { 
+  videoUrl?: string
+  caption: string
+  captionStyle: CaptionStyle
+  aspectRatio?: '9:16' | '16:9' | '1:1' | '4:5'
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Get canvas dimensions based on aspect ratio
+  const getCanvasDimensions = () => {
+    switch (aspectRatio) {
+      case '16:9': return { width: 1920, height: 1080 }
+      case '1:1': return { width: 1080, height: 1080 }
+      case '4:5': return { width: 1080, height: 1350 }
+      case '9:16':
+      default: return { width: 1080, height: 1920 }
+    }
+  }
+
+  const canvasDims = getCanvasDimensions()
+  const canvasWidth = canvasDims.width
+  const canvasHeight = canvasDims.height
+
+  // Render video frame with caption
+  const renderFrame = useCallback(() => {
+    const canvas = canvasRef.current
+    const ctx = canvas?.getContext('2d', { alpha: false })
+    const video = videoRef.current
+    if (!canvas || !ctx || !video || video.readyState < 2) return
+
+    // Clear canvas
+    ctx.fillStyle = '#000'
+    ctx.fillRect(0, 0, canvasWidth, canvasHeight)
+
+    // Draw video frame
+    const videoAspect = video.videoWidth / video.videoHeight
+    const canvasAspect = canvasWidth / canvasHeight
+
+    let drawWidth = canvasWidth
+    let drawHeight = canvasHeight
+    let offsetX = 0
+    let offsetY = 0
+
+    if (videoAspect > canvasAspect) {
+      drawHeight = canvasHeight
+      drawWidth = canvasHeight * videoAspect
+      offsetX = -(drawWidth - canvasWidth) / 2
+    } else {
+      drawWidth = canvasWidth
+      drawHeight = canvasWidth / videoAspect
+      offsetY = -(drawHeight - canvasHeight) / 2
+    }
+
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight)
+
+    // Draw caption if exists
+    if (caption) {
+      const style = captionStyle
+      const charsPerLine = Math.round(35 * style.widthPercent / 0.8) || 25
+      const wrappedText = wrapText(caption, charsPerLine)
+      const lines = wrappedText.split('\n')
+      const fontSize = Math.max(24, Math.floor((style.fontSize || 16) * 1.5))
+      const lineSpacing = Math.max(12, Math.floor(fontSize * 0.5))
+      const padding = style.paddingPx || 20
+
+      // Calculate text dimensions
+      ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`
+      const maxLineWidth = Math.max(...lines.map(line => ctx.measureText(line).width))
+      const textHeight = lines.length * fontSize + (lines.length - 1) * lineSpacing
+      const boxWidth = maxLineWidth + padding * 2
+      const boxHeight = textHeight + padding * 2
+
+      const centerX = canvasWidth * style.xPercent
+      const centerY = canvasHeight * style.yPercent
+      const rotation = (style.rotation || 0) * Math.PI / 180
+
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(rotation)
+
+      // Draw background with rounded corners
+      const bgOpacity = style.backgroundOpacity ?? 0.7
+      const hexToRgb = (hex: string) => {
+        const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+        return result
+          ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
+          : { r: 0, g: 0, b: 0 }
+      }
+      const rgb = hexToRgb(style.backgroundColor || '#000000')
+      ctx.fillStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${bgOpacity})`
+
+      const radius = 12
+      const x = -boxWidth / 2
+      const y = -boxHeight / 2
+      const w = boxWidth
+      const h = boxHeight
+      
+      // Draw rounded rectangle manually
+      ctx.beginPath()
+      ctx.moveTo(x + radius, y)
+      ctx.lineTo(x + w - radius, y)
+      ctx.quadraticCurveTo(x + w, y, x + w, y + radius)
+      ctx.lineTo(x + w, y + h - radius)
+      ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h)
+      ctx.lineTo(x + radius, y + h)
+      ctx.quadraticCurveTo(x, y + h, x, y + h - radius)
+      ctx.lineTo(x, y + radius)
+      ctx.quadraticCurveTo(x, y, x + radius, y)
+      ctx.closePath()
+      ctx.fill()
+
+      // Draw text
+      ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillStyle = style.textColor || '#ffffff'
+
+      const startY = -textHeight / 2 + fontSize / 2
+      lines.forEach((line, i) => {
+        ctx.fillText(line, 0, startY + i * (fontSize + lineSpacing))
+      })
+
+      ctx.restore()
+    }
+  }, [caption, captionStyle, canvasWidth, canvasHeight])
+
+  // Update canvas when video loads or caption changes
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || !videoUrl) return
+
+    const handleLoadedData = () => {
+      video.currentTime = 0.5 // Show frame at 0.5s
+      setTimeout(renderFrame, 100)
+    }
+
+    const handleSeeked = () => {
+      renderFrame()
+    }
+
+    video.addEventListener('loadeddata', handleLoadedData)
+    video.addEventListener('seeked', handleSeeked)
+    
+    if (video.readyState >= 2) {
+      video.currentTime = 0.5
+    }
+
+    return () => {
+      video.removeEventListener('loadeddata', handleLoadedData)
+      video.removeEventListener('seeked', handleSeeked)
+    }
+  }, [videoUrl, renderFrame])
+
+  // Re-render when caption or style changes
+  useEffect(() => {
+    renderFrame()
+  }, [caption, captionStyle, renderFrame])
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        aspectRatio: '9/16',
+        backgroundColor: '#000',
+        position: 'relative',
+        overflow: 'hidden',
+        width: '100%',
+        height: '100%',
+      }}
+    >
+      {videoUrl && (
+        <>
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            style={{ display: 'none' }}
+            muted
+            playsInline
+            preload="metadata"
+          />
+          <canvas
+            ref={canvasRef}
+            width={canvasWidth}
+            height={canvasHeight}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              display: 'block',
+            }}
+          />
+        </>
+      )}
+    </div>
+  )
 }
 
-// Helper function to normalize CaptionStyle
 const normalizeCaptionStyle = (style: CaptionStyle): CaptionStyle => {
   if (style.xPercent !== undefined && style.yPercent !== undefined && style.widthPercent !== undefined) {
     return {
@@ -51,35 +251,68 @@ const normalizeCaptionStyle = (style: CaptionStyle): CaptionStyle => {
     yPercent = 0.85
   }
 
-  return {
-    ...style,
-    xPercent,
-    yPercent,
-    widthPercent,
-    paddingPx,
-  }
+  return { ...style, xPercent, yPercent, widthPercent, paddingPx }
 }
 
 export default function Step4Review({ variants, captionStyle, demos, onUpdate, onBack, aspectRatio = '9:16' }: Step4ReviewProps) {
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(variants[0]?.id || null)
-  const [editingId, setEditingId] = useState<string | null>(null)
   const [isExporting, setIsExporting] = useState(false)
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 })
   const [exportError, setExportError] = useState<string | null>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const videoPreviewRef = useRef<any>(null)
+  const [totalDuration, setTotalDuration] = useState(0)
+  const [editingCaptionId, setEditingCaptionId] = useState<string | null>(null)
+  const lastSelectedIdRef = useRef<string | null>(selectedVariantId)
+  const isEditingRef = useRef(false)
+  const lastSyncedCaptionRef = useRef<string>('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Get the current caption from the selected variant directly
+  const getCurrentCaption = () => {
+    const variant = variants.find(v => v.id === selectedVariantId)
+    return variant?.caption || ''
+  }
 
   const getCaptionStyleForVariant = (variant: Variant): CaptionStyle => {
     return normalizeCaptionStyle(variant.captionStyleOverride || captionStyle)
   }
 
-  const selectedVariant = variants.find(v => v.id === selectedVariantId)
-  const selectedCount = variants.filter(v => v.selected).length
+  // Get the current selected variant - this will update when variants array changes
+  const selectedVariant = useMemo(() => {
+    return variants.find(v => v.id === selectedVariantId) || null
+  }, [variants, selectedVariantId])
+  const selectedCount = useMemo(() => {
+    return variants.filter(v => v.selected).length
+  }, [variants])
+  
+  // Local state for editing caption - only sync when variant changes (not when we're editing)
+  const [editingCaption, setEditingCaption] = useState(selectedVariant?.caption || '')
+  
+  // Sync when selected variant changes OR when the variant's caption changes externally
+  useEffect(() => {
+    if (selectedVariant) {
+      // If variant ID changed, reset editing state
+      if (selectedVariantId !== lastSelectedIdRef.current) {
+        lastSelectedIdRef.current = selectedVariantId
+        isEditingRef.current = false
+        setEditingCaption(selectedVariant.caption)
+        lastSyncedCaptionRef.current = selectedVariant.caption
+      } 
+      // If caption changed externally (not from our editing), sync it
+      else if (!isEditingRef.current && selectedVariant.caption !== lastSyncedCaptionRef.current) {
+        setEditingCaption(selectedVariant.caption)
+        lastSyncedCaptionRef.current = selectedVariant.caption
+      }
+    } else if (selectedVariantId && !selectedVariant) {
+      // Variant was deleted or not found, reset
+      setEditingCaption('')
+      lastSyncedCaptionRef.current = ''
+    }
+  }, [selectedVariantId, selectedVariant?.caption, selectedVariant])
 
-  const toggleSelection = (id: string) => {
+  const toggleSelection = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
     onUpdate(variants.map(v => v.id === id ? { ...v, selected: !v.selected } : v))
   }
 
@@ -87,84 +320,9 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
     onUpdate(variants.map(v => v.id === id ? { ...v, ...updates } : v))
   }
 
-  const renderVideoWithCaption = async (variant: Variant, demoVideo: DemoVideo, startTime?: number, duration?: number): Promise<Blob | null> => {
-    if (!demoVideo.file) {
-      console.error('No demo file found')
-      return null
-    }
-
-    try {
-      const creatorTemplate = CREATOR_TEMPLATES.find(t => t.id === variant.creatorTemplateId)
-      let creatorVideoFile: File | null = null
-
-      if (creatorTemplate?.videoUrl) {
-        try {
-          const creatorResponse = await fetch(creatorTemplate.videoUrl)
-          const creatorBlob = await creatorResponse.blob()
-          creatorVideoFile = new File([creatorBlob], 'creator.mp4', { type: 'video/mp4' })
-        } catch (e) {
-          console.warn('Could not load creator video:', e)
-        }
-      }
-
-      const formData = new FormData()
-      formData.append('video', demoVideo.file)
-      if (creatorVideoFile) {
-        formData.append('creatorVideo', creatorVideoFile)
-      }
-      formData.append('caption', variant.caption)
-
-      const styleForVariant = getCaptionStyleForVariant(variant)
-      formData.append('captionStyle', JSON.stringify(styleForVariant))
-      if (startTime !== undefined) {
-        formData.append('startTime', startTime.toString())
-      }
-      if (duration !== undefined) {
-        formData.append('duration', duration.toString())
-      }
-
-      const response = await fetch('/api/render-video', {
-        method: 'POST',
-        body: formData,
-      })
-
-      if (!response.ok) {
-        const error = await response.json()
-        throw new Error(error.error || 'Failed to render video')
-      }
-
-      const blob = await response.blob()
-      return blob
-    } catch (error) {
-      console.error('Render error:', error)
-      return null
-    }
-  }
-
-  const handleExport = async (captionsOnly: boolean = false) => {
+  const handleExport = async () => {
     const selectedVariants = variants.filter(v => v.selected)
-
-    if (captionsOnly) {
-      const csv = [
-        ['Video Name', 'Creator', 'Caption', 'Hashtags', 'CTA'].join(','),
-        ...selectedVariants.map(v => [
-          v.demoName,
-          v.creatorName,
-          `"${v.caption.replace(/"/g, '""')}"`,
-          `"${v.hashtags.replace(/"/g, '""')}"`,
-          `"${v.cta.replace(/"/g, '""')}"`,
-        ].join(','))
-      ].join('\n')
-
-      const blob = new Blob([csv], { type: 'text/csv' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `ugc-captions-${Date.now()}.csv`
-      a.click()
-      URL.revokeObjectURL(url)
-      return
-    }
+    if (selectedVariants.length === 0) return
 
     setIsExporting(true)
     setExportError(null)
@@ -177,53 +335,29 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
       for (let i = 0; i < selectedVariants.length; i++) {
         const variant = selectedVariants[i]
         const demoVideo = demos.find(d => d.id === variant.demoId)
-
-        if (!demoVideo?.file) {
-          setExportError(`Skipped video ${i + 1}: missing file`)
-          continue
-        }
+        if (!demoVideo?.file) continue
 
         setExportProgress({ current: i, total: selectedVariants.length })
 
-        try {
-          if (i > 0) {
-            await new Promise(resolve => setTimeout(resolve, 1000))
-          }
+        // Add video file
+        const timestamp = Date.now()
+        const safeCreatorName = variant.creatorName.replace(/[^a-z0-9]/gi, '_')
+        const safeDemoName = variant.demoName.replace(/\.[^/.]+$/, '').replace(/[^a-z0-9]/gi, '_').substring(0, 30)
+        const filename = `${safeDemoName}_${safeCreatorName}_${timestamp}.mp4`
 
-          const renderedBlob = await renderVideoWithCaption(
-            variant,
-            demoVideo,
-            variant.startTime,
-            variant.duration
-          )
-
-          if (renderedBlob && renderedBlob.size > 1000) {
-            const timestamp = Date.now()
-            const randomSuffix = Math.random().toString(36).substring(2, 8)
-            const safeCreatorName = variant.creatorName.replace(/[^a-z0-9]/gi, '_')
-            const safeDemoName = variant.demoName.replace(/\.[^/.]+$/, '').replace(/[^a-z0-9]/gi, '_').substring(0, 30)
-            const filename = `${safeDemoName}_${safeCreatorName}_${timestamp}_${randomSuffix}.mp4`
-
-            zip.file(filename, renderedBlob)
-
-            metadata.push({
-              filename,
-              demoName: variant.demoName,
-              creator: variant.creatorName,
-              caption: variant.caption,
-              hashtags: variant.hashtags,
-              cta: variant.cta,
-            })
-          } else {
-            setExportError(`Failed to render video ${i + 1}. Continuing with others...`)
-          }
-        } catch (error) {
-          setExportError(`Error on video ${i + 1}. Continuing with others...`)
-        }
+        zip.file(filename, demoVideo.file)
+        metadata.push({
+          filename,
+          demoName: variant.demoName,
+          creator: variant.creatorName,
+          caption: variant.caption,
+          hashtags: variant.hashtags,
+          cta: variant.cta,
+        })
       }
 
       if (metadata.length === 0) {
-        throw new Error('No videos were successfully rendered')
+        throw new Error('No videos to export')
       }
 
       const csvContent = [
@@ -241,7 +375,6 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
       zip.file('captions.csv', csvContent)
 
       const zipBlob = await zip.generateAsync({ type: 'blob' })
-
       const url = URL.createObjectURL(zipBlob)
       const a = document.createElement('a')
       a.href = url
@@ -251,402 +384,381 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
 
       setIsExporting(false)
       setExportProgress({ current: 0, total: 0 })
-      setExportError(null)
     } catch (error) {
-      setExportError(error instanceof Error ? error.message : 'Failed to export videos. Please try again.')
+      setExportError(error instanceof Error ? error.message : 'Export failed')
       setIsExporting(false)
     }
   }
 
+  // Get video URLs for selected variant
+  const selectedCreator = selectedVariant
+    ? CREATOR_TEMPLATES.find(t => t.id === selectedVariant.creatorTemplateId)
+    : null
+  const selectedDemo = selectedVariant
+    ? demos.find(d => d.id === selectedVariant.demoId)
+    : null
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
-      {/* Header - Fixed */}
-      <div style={{
-        padding: '0.5rem 1.5rem',
-        borderBottom: '1px solid #e5e7eb',
-        backgroundColor: 'white',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <h2 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '0.125rem', color: '#111827' }}>
-              Review & Export
-            </h2>
-            <p style={{ color: '#6b7280', fontSize: '0.75rem' }}>
-              {variants.length} videos ready • {selectedCount} selected
-            </p>
-          </div>
-
-          {/* Download Button - Moved to Top */}
-          <div style={{ display: 'flex', gap: '0.75rem' }}>
-            <button
-              onClick={onBack}
-              disabled={isExporting}
-              style={{
-                padding: '0.75rem 1.5rem',
-                backgroundColor: 'white',
-                color: '#374151',
-                borderRadius: '8px',
-                fontWeight: '500',
-                cursor: isExporting ? 'not-allowed' : 'pointer',
-                opacity: isExporting ? 0.5 : 1,
-                border: '1px solid #e5e7eb',
-                fontSize: '0.875rem',
-              }}
-            >
-              ← Back
-            </button>
-            <button
-              onClick={() => handleExport(false)}
-              disabled={selectedCount === 0 || isExporting}
-              style={{
-                padding: '0.75rem 1.5rem',
-                backgroundColor: selectedCount === 0 || isExporting ? '#d1d5db' : '#3b82f6',
-                color: 'white',
-                borderRadius: '8px',
-                fontWeight: '600',
-                cursor: selectedCount === 0 || isExporting ? 'not-allowed' : 'pointer',
-                fontSize: '0.875rem',
-                border: 'none',
-              }}
-            >
-              {isExporting ? 'Rendering...' : 'Download Videos'}
-            </button>
-          </div>
+      {/* Header */}
+      <div style={{ marginBottom: '0.75rem', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div>
+          <h2 style={{ fontSize: '1.125rem', marginBottom: '0.25rem', fontWeight: '600', color: '#111827' }}>
+            Review & Export
+          </h2>
+          <p style={{ color: '#6b7280', fontSize: '0.8rem' }}>
+            {variants.length} clips generated • {selectedCount} selected for export
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <button
+            onClick={onBack}
+            style={{
+              padding: '0.5rem 1rem',
+              background: 'white',
+              color: '#374151',
+              borderRadius: '8px',
+              fontWeight: '500',
+              fontSize: '0.75rem',
+              border: '1px solid #e5e7eb',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}
+          >
+            <ChevronLeft size={14} />
+            Back
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={selectedCount === 0 || isExporting}
+            style={{
+              padding: '0.5rem 1rem',
+              background: selectedCount === 0 || isExporting ? '#e5e7eb' : 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+              color: selectedCount === 0 || isExporting ? '#9ca3af' : 'white',
+              borderRadius: '8px',
+              fontWeight: '600',
+              fontSize: '0.75rem',
+              border: 'none',
+              cursor: selectedCount === 0 || isExporting ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              boxShadow: selectedCount > 0 && !isExporting ? '0 2px 8px rgba(59, 130, 246, 0.3)' : 'none',
+            }}
+          >
+            <Download size={14} />
+            {isExporting ? 'Exporting...' : 'Download'}
+          </button>
         </div>
       </div>
 
-      {/* Main Content - Split Layout */}
+      {/* Main 2-Column Layout */}
       <div style={{
         flex: 1,
         display: 'grid',
-        gridTemplateColumns: '550px 1fr',
-        gap: 0,
+        gridTemplateColumns: '1.3fr 1fr',
+        gap: '0.875rem',
+        minHeight: 0,
+        maxHeight: '100%',
         overflow: 'hidden',
       }}>
-        {/* Left Side - Video Editor Preview */}
+        {/* LEFT - Video Preview */}
         <div style={{
-          borderRight: '1px solid #e5e7eb',
-          backgroundColor: '#f8f9fa',
           display: 'flex',
           flexDirection: 'column',
+          minHeight: 0,
+          maxHeight: '100%',
           overflow: 'hidden',
-          position: 'relative',
         }}>
           {selectedVariant ? (
-            <div style={{
-              flex: 1,
-              display: 'flex',
-              flexDirection: 'column',
-              padding: '0.75rem',
-              gap: '0.5rem',
-              overflow: 'hidden',
-            }}>
-              {/* Video Player Container */}
-              <div style={{
-                flex: 1,
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: 'white',
-                borderRadius: '12px',
-                padding: '1rem',
-                boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                border: '1px solid #e5e7eb',
-                position: 'relative',
-                minHeight: 0,
-                gap: '0.75rem',
-              }}>
-                {/* Video Canvas */}
-                <div
-                  style={{
-                    width: aspectRatio === '16:9' ? '100%' : aspectRatio === '1:1' ? '70%' : aspectRatio === '4:5' ? '65%' : '45%',
-                    aspectRatio: aspectRatio.replace(':', '/'),
-                    borderRadius: '8px',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    flexShrink: 0,
-                  }}
-                >
-                  <VideoCanvasPreview
-                    creatorVideoUrl={CREATOR_TEMPLATES.find(t => t.id === selectedVariant.creatorTemplateId)?.videoUrl}
-                    demoVideoUrl={demos.find(d => d.id === selectedVariant.demoId)?.url}
-                    caption={selectedVariant.caption}
-                    captionStyle={getCaptionStyleForVariant(selectedVariant)}
-                    aspectRatio={aspectRatio}
-                    play={isPlaying}
-                    onPlayStateChange={setIsPlaying}
-                    onTimeUpdate={(time, dur) => {
-                      setCurrentTime(time)
-                      setDuration(dur)
-                    }}
-                    onCaptionChange={(newCaption) => {
-                      updateVariant(selectedVariant.id, { caption: newCaption })
-                    }}
-                    onCaptionStyleChange={(updates) => {
-                      const currentStyle = getCaptionStyleForVariant(selectedVariant)
-                      const newStyle = normalizeCaptionStyle({ ...currentStyle, ...updates })
-                      updateVariant(selectedVariant.id, { captionStyleOverride: newStyle })
-                    }}
-                  />
-                </div>
-
-                {/* Video Controls - Below Video */}
-                <div style={{
-                  width: aspectRatio === '16:9' ? '100%' : aspectRatio === '1:1' ? '70%' : aspectRatio === '4:5' ? '65%' : '45%',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: '0.5rem',
-                }}>
-                  {/* Timeline */}
-                  <div style={{
-                    width: '100%',
-                    height: '4px',
-                    backgroundColor: '#e5e7eb',
-                    borderRadius: '2px',
-                    position: 'relative',
-                    cursor: 'pointer',
-                  }}>
-                    <div style={{
-                      height: '100%',
-                      backgroundColor: '#3b82f6',
-                      borderRadius: '2px',
-                      width: `${duration > 0 ? (currentTime / duration) * 100 : 0}%`,
-                    }} />
-                  </div>
-
-                  {/* Controls Row */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '0.75rem',
-                  }}>
-                    {/* Play/Pause Button */}
-                    <button
-                      onClick={() => {
-                        // Toggle play state - the VideoCanvasPreview handles the actual playback
-                        setIsPlaying(!isPlaying)
-                      }}
-                      style={{
-                        padding: '0.4rem 0.6rem',
-                        backgroundColor: '#f3f4f6',
-                        border: '1px solid #e5e7eb',
-                        borderRadius: '6px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '0.875rem',
-                      }}
-                    >
-                      {isPlaying ? '⏸' : '▶'}
-                    </button>
-
-                    {/* Time Display */}
-                    <div style={{
-                      fontSize: '0.75rem',
-                      color: '#6b7280',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}>
-                      {formatTime(currentTime)} / {formatTime(duration)}
-                    </div>
-
-                    {/* Volume Control */}
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      flex: 1,
-                      maxWidth: '120px',
-                    }}>
-                      <span style={{ fontSize: '0.875rem' }}>🔊</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={volume}
-                        onChange={(e) => setVolume(parseFloat(e.target.value))}
-                        style={{
-                          flex: 1,
-                          height: '4px',
-                          borderRadius: '2px',
-                          outline: 'none',
-                          WebkitAppearance: 'none',
-                          background: `linear-gradient(to right, #3b82f6 0%, #3b82f6 ${volume * 100}%, #e5e7eb ${volume * 100}%, #e5e7eb 100%)`,
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <MiniEditor
+              key={`preview-${selectedVariantId}`}
+              creatorVideoUrl={selectedCreator?.videoUrl || null}
+              demoVideoUrl={selectedDemo?.url}
+              caption={selectedVariant.caption}
+              captionStyle={getCaptionStyleForVariant(selectedVariant)}
+              aspectRatio={aspectRatio}
+              onAspectRatioChange={() => {}}
+              onCaptionChange={(newCaption) => {
+                // Only update if the caption actually changed and we're not already syncing from textarea
+                if (selectedVariant && newCaption !== selectedVariant.caption && !isEditingRef.current) {
+                  updateVariant(selectedVariant.id, { caption: newCaption })
+                  // Also update the textarea if it's not being actively edited
+                  if (!isEditingRef.current) {
+                    setEditingCaption(newCaption)
+                    lastSyncedCaptionRef.current = newCaption
+                  }
+                }
+              }}
+              onCaptionStyleChange={(updates) => {
+                const currentStyle = getCaptionStyleForVariant(selectedVariant)
+                const newStyle = normalizeCaptionStyle({ ...currentStyle, ...updates })
+                updateVariant(selectedVariant.id, { captionStyleOverride: newStyle })
+              }}
+              creatorDuration={0}
+              totalDuration={totalDuration}
+              currentTime={currentTime}
+              onTimeUpdate={setCurrentTime}
+              onDurationUpdate={setTotalDuration}
+              isPlaying={isPlaying}
+              onPlayStateChange={setIsPlaying}
+            />
           ) : (
             <div style={{
               flex: 1,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              background: 'white',
+              borderRadius: '16px',
+              border: '1px solid #e5e7eb',
               color: '#9ca3af',
               fontSize: '0.875rem',
             }}>
-              Select a video to preview
+              Select a clip to preview
             </div>
           )}
         </div>
 
-        {/* Right Side - Video Grid */}
+        {/* RIGHT - Caption Editor + Clips List */}
         <div style={{
-          overflow: 'auto',
-          padding: '0.5rem',
-          backgroundColor: '#fafafa',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '0.5rem',
+          minHeight: 0,
+          maxHeight: '100%',
+          height: '100%',
+          overflow: 'hidden',
         }}>
+          {/* Caption Editor Section */}
           <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
-            gap: '0.625rem',
+            background: 'linear-gradient(135deg, #ffffff 0%, #fafbfc 100%)',
+            borderRadius: '10px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+            padding: '0.625rem',
+            flexShrink: 0,
           }}>
-            {variants.map(variant => {
-              const demoVideo = demos.find(d => d.id === variant.demoId)
-              const creatorTemplate = CREATOR_TEMPLATES.find(t => t.id === variant.creatorTemplateId)
-              const isSelected = selectedVariantId === variant.id
-              const variantStyle = getCaptionStyleForVariant(variant)
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.375rem',
+              marginBottom: '0.5rem',
+            }}>
+              <Pencil size={12} style={{ color: '#3b82f6' }} />
+              <span style={{ fontWeight: '600', fontSize: '0.75rem', color: '#1f2937' }}>
+                Edit Caption
+              </span>
+              {selectedVariant && (
+                <span style={{
+                  marginLeft: 'auto',
+                  fontSize: '0.6rem',
+                  color: '#6b7280',
+                  background: '#f3f4f6',
+                  padding: '0.125rem 0.375rem',
+                  borderRadius: '6px',
+                }}>
+                  Clip {variants.findIndex(v => v.id === selectedVariantId) + 1}
+                </span>
+              )}
+            </div>
+            <textarea
+              ref={textareaRef}
+              value={editingCaption}
+              onChange={(e) => {
+                const newCaption = e.target.value
+                isEditingRef.current = true
+                setEditingCaption(newCaption)
+                // Immediately update the variant - syncs with preview and config
+                if (selectedVariant) {
+                  // Create a new variants array with updated caption
+                  const updatedVariants = variants.map(v => 
+                    v.id === selectedVariant.id 
+                      ? { ...v, caption: newCaption }
+                      : v
+                  )
+                  onUpdate(updatedVariants)
+                  lastSyncedCaptionRef.current = newCaption
+                }
+              }}
+              onFocus={(e) => {
+                if (selectedVariant) {
+                  isEditingRef.current = true
+                  e.target.style.borderColor = '#3b82f6'
+                  e.target.style.background = 'white'
+                }
+              }}
+              onBlur={(e) => {
+                isEditingRef.current = false
+                e.target.style.borderColor = '#e5e7eb'
+                e.target.style.background = '#fafafa'
+                // Ensure final value is saved
+                if (selectedVariant && editingCaption !== selectedVariant.caption) {
+                  updateVariant(selectedVariant.id, { caption: editingCaption })
+                }
+              }}
+              onKeyDown={(e) => {
+                // Allow all keys including delete, backspace, etc.
+                e.stopPropagation()
+                // Save on Enter (but allow Shift+Enter for new lines)
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  e.currentTarget.blur()
+                }
+              }}
+              placeholder="Select a clip to edit its caption..."
+              disabled={!selectedVariant}
+              style={{
+                width: '100%',
+                minHeight: '50px',
+                maxHeight: '70px',
+                padding: '0.5rem',
+                borderRadius: '8px',
+                border: '1px solid #e5e7eb',
+                fontSize: '0.7rem',
+                resize: 'none',
+                fontFamily: 'inherit',
+                lineHeight: 1.4,
+                background: selectedVariant ? '#fafafa' : '#f3f4f6',
+                color: selectedVariant ? '#374151' : '#9ca3af',
+                transition: 'border-color 0.15s, background-color 0.15s',
+              }}
+            />
+          </div>
 
-              return (
-                <div
-                  key={variant.id}
-                  onClick={() => setSelectedVariantId(variant.id)}
-                  style={{
-                    cursor: 'pointer',
-                    borderRadius: '8px',
-                    overflow: 'hidden',
-                    border: isSelected ? '3px solid #3b82f6' : '2px solid #e5e7eb',
-                    backgroundColor: '#000',
-                    transition: 'all 0.15s',
-                    boxShadow: isSelected ? '0 0 0 3px rgba(59, 130, 246, 0.15)' : 'none',
-                  }}
-                >
-                  {/* Video Thumbnail - 9:16 with Caption Overlay */}
-                  <div style={{
-                    aspectRatio: '9/16',
-                    backgroundColor: '#000',
-                    position: 'relative',
-                    overflow: 'hidden',
-                  }}>
-                    {demoVideo?.url && (
-                      <video
-                        src={demoVideo.url}
-                        style={{
-                          width: '100%',
-                          height: '100%',
-                          objectFit: 'cover',
-                        }}
-                        muted
-                        playsInline
-                      />
-                    )}
+          {/* Clips List Section */}
+          <div style={{
+            flex: '1 1 0',
+            display: 'flex',
+            flexDirection: 'column',
+            background: 'linear-gradient(135deg, #ffffff 0%, #fafbfc 100%)',
+            borderRadius: '10px',
+            border: '1px solid #e5e7eb',
+            boxShadow: '0 2px 6px rgba(0,0,0,0.04)',
+            overflow: 'hidden',
+            minHeight: 0,
+          }}>
+            {/* Header */}
+            <div style={{
+              padding: '0.75rem 1rem',
+              borderBottom: '1px solid #f3f4f6',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.5rem',
+              background: 'white',
+              flexShrink: 0,
+            }}>
+              <span style={{ fontWeight: '600', fontSize: '0.75rem', color: '#111827', letterSpacing: '-0.01em' }}>
+                Generated Clips
+              </span>
+              <span style={{
+                fontSize: '0.65rem',
+                color: '#9ca3af',
+                fontWeight: '500',
+              }}>
+                {variants.length}
+              </span>
+            </div>
 
-                    {/* Caption Overlay - Positioned like in preview */}
-                    <div style={{
-                      position: 'absolute',
-                      left: '50%',
-                      transform: 'translateX(-50%)',
-                      width: '85%',
-                      [variantStyle.position === 'top' ? 'top' :
-                       variantStyle.position === 'center' ? 'top' : 'bottom']:
-                        variantStyle.position === 'top' ? '15%' :
-                        variantStyle.position === 'center' ? '50%' : '15%',
-                      ...(variantStyle.position === 'center' && { transform: 'translate(-50%, -50%)' }),
-                      padding: '0.25rem 0.4rem',
-                      backgroundColor: `${variantStyle.backgroundColor}${Math.round(variantStyle.backgroundOpacity * 255).toString(16).padStart(2, '0')}`,
-                      borderRadius: '4px',
-                      pointerEvents: 'none',
-                    }}>
-                      <div style={{
-                        color: variantStyle.textColor,
-                        fontSize: '0.45rem',
-                        fontWeight: '600',
-                        lineHeight: '1.2',
-                        textAlign: 'center',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                      }}>
-                        {variant.caption}
-                      </div>
-                    </div>
+            {/* Scrollable Clips Grid */}
+            <div style={{
+              flex: '1 1 0',
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              padding: '0.375rem',
+              minHeight: 0,
+              height: 0,
+            }}>
+            {variants.length === 0 ? (
+              <div style={{
+                flex: 1,
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#9ca3af',
+                fontSize: '0.8rem',
+                textAlign: 'center',
+                padding: '2rem',
+              }}>
+                <Play size={32} style={{ color: '#d1d5db', marginBottom: '0.5rem' }} />
+                <div>No clips generated yet</div>
+                <div style={{ fontSize: '0.7rem', marginTop: '0.25rem' }}>Go back and generate some captions first</div>
+              </div>
+            ) : (
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '0.75rem',
+                padding: '0.75rem',
+              }}>
+                {variants.map(variant => {
+                  const demoVideo = demos.find(d => d.id === variant.demoId)
+                  const isSelected = selectedVariantId === variant.id
+                  const variantStyle = getCaptionStyleForVariant(variant)
 
-                    {/* Creator Badge - Top Left */}
-                    <div style={{
-                      position: 'absolute',
-                      top: '0.35rem',
-                      left: '0.35rem',
-                      padding: '0.2rem 0.4rem',
-                      backgroundColor: 'rgba(0,0,0,0.8)',
-                      color: 'white',
-                      borderRadius: '4px',
-                      fontSize: '0.5rem',
-                      fontWeight: '600',
-                      backdropFilter: 'blur(4px)',
-                    }}>
-                      {variant.creatorName}
-                    </div>
-
-                    {/* Export Checkbox - Top Right */}
+                  return (
                     <div
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        toggleSelection(variant.id)
+                      key={variant.id}
+                      onClick={() => {
+                        if (selectedVariantId !== variant.id) {
+                          setIsPlaying(false)
+                          setCurrentTime(0)
+                          setSelectedVariantId(variant.id)
+                        }
                       }}
                       style={{
-                        position: 'absolute',
-                        top: '0.35rem',
-                        right: '0.35rem',
-                        width: '18px',
-                        height: '18px',
-                        borderRadius: '4px',
-                        backgroundColor: variant.selected ? '#3b82f6' : 'rgba(255,255,255,0.95)',
-                        border: variant.selected ? 'none' : '2px solid rgba(255,255,255,0.5)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
                         cursor: 'pointer',
-                        transition: 'all 0.15s',
-                        backdropFilter: 'blur(4px)',
+                        borderRadius: '16px',
+                        overflow: 'hidden',
+                        border: isSelected ? '2px solid #3b82f6' : '1px solid #e5e7eb',
+                        backgroundColor: '#fff',
+                        transition: 'all 0.2s ease',
+                        boxShadow: isSelected 
+                          ? '0 0 0 3px rgba(59, 130, 246, 0.1)' 
+                          : '0 1px 2px rgba(0, 0, 0, 0.04)',
                       }}
                     >
-                      {variant.selected && (
-                        <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: '700' }}>✓</span>
-                      )}
-                    </div>
+                      <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+                        {/* Video Thumbnail with Embedded Caption */}
+                        <ThumbnailCanvas
+                          videoUrl={demoVideo?.url}
+                          caption={variant.caption}
+                          captionStyle={variantStyle}
+                          aspectRatio={aspectRatio}
+                        />
 
-                    {/* Playing Indicator */}
-                    {isSelected && (
-                      <div style={{
-                        position: 'absolute',
-                        bottom: '0.35rem',
-                        right: '0.35rem',
-                        padding: '0.25rem 0.35rem',
-                        borderRadius: '4px',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        fontSize: '0.5rem',
-                        fontWeight: '600',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '0.2rem',
-                      }}>
-                        ▶ Now Playing
+                        {/* Minimal Checkbox - Top Left Corner */}
+                        <div
+                          onClick={(e) => toggleSelection(variant.id, e)}
+                          style={{
+                            position: 'absolute',
+                            top: '8px',
+                            left: '8px',
+                            width: '20px',
+                            height: '20px',
+                            borderRadius: '6px',
+                            backgroundColor: variant.selected ? '#3b82f6' : 'rgba(255, 255, 255, 0.9)',
+                            border: variant.selected ? 'none' : '2px solid rgba(255, 255, 255, 0.6)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s ease',
+                            zIndex: 10,
+                          }}
+                        >
+                          {variant.selected && <Check size={12} color="white" strokeWidth={2.5} />}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            </div>
           </div>
         </div>
       </div>
@@ -665,37 +777,32 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
           <div style={{
             backgroundColor: 'white',
             borderRadius: '12px',
-            padding: '2rem',
-            maxWidth: '28rem',
+            padding: '1.5rem',
+            maxWidth: '20rem',
             width: '100%',
             margin: '1rem',
           }}>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: '600', marginBottom: '0.5rem' }}>
-              Rendering Videos
+            <h3 style={{ fontSize: '1rem', fontWeight: '600', marginBottom: '0.5rem' }}>
+              Exporting Videos
             </h3>
-            <p style={{ fontSize: '0.875rem', color: '#6b7280', marginBottom: '1.5rem' }}>
-              Processing video {exportProgress.current + 1} of {exportProgress.total}...
+            <p style={{ fontSize: '0.8rem', color: '#6b7280', marginBottom: '1rem' }}>
+              Processing {exportProgress.current + 1} of {exportProgress.total}...
             </p>
             <div style={{
               width: '100%',
               backgroundColor: '#e5e7eb',
               borderRadius: '9999px',
-              height: '0.5rem',
+              height: '6px',
               overflow: 'hidden',
             }}>
-              <div
-                style={{
-                  backgroundColor: '#3b82f6',
-                  height: '100%',
-                  borderRadius: '9999px',
-                  transition: 'width 0.3s ease',
-                  width: `${(exportProgress.current / exportProgress.total) * 100}%`,
-                }}
-              />
+              <div style={{
+                backgroundColor: '#3b82f6',
+                height: '100%',
+                borderRadius: '9999px',
+                transition: 'width 0.3s ease',
+                width: `${exportProgress.total > 0 ? (exportProgress.current / exportProgress.total) * 100 : 0}%`,
+              }} />
             </div>
-            <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '0.5rem', textAlign: 'center' }}>
-              {Math.round((exportProgress.current / exportProgress.total) * 100)}%
-            </p>
           </div>
         </div>
       )}
@@ -704,28 +811,26 @@ export default function Step4Review({ variants, captionStyle, demos, onUpdate, o
       {exportError && !isExporting && (
         <div style={{
           position: 'fixed',
-          bottom: '2rem',
-          right: '2rem',
+          bottom: '1rem',
+          right: '1rem',
           backgroundColor: '#fef2f2',
           border: '1px solid #fecaca',
           color: '#991b1b',
-          padding: '1rem 1.5rem',
+          padding: '0.75rem 1rem',
           borderRadius: '8px',
-          maxWidth: '24rem',
+          maxWidth: '20rem',
           boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
           zIndex: 50,
+          fontSize: '0.8rem',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
-            <div>
-              <h4 style={{ fontWeight: '600', marginBottom: '0.25rem' }}>Export Error</h4>
-              <p style={{ fontSize: '0.875rem' }}>{exportError}</p>
-            </div>
+            <div>{exportError}</div>
             <button
               onClick={() => setExportError(null)}
               style={{
-                marginLeft: '1rem',
+                marginLeft: '0.5rem',
                 color: '#991b1b',
-                fontSize: '1.25rem',
+                fontSize: '1rem',
                 cursor: 'pointer',
                 background: 'none',
                 border: 'none',

@@ -70,43 +70,60 @@ export async function POST(request: NextRequest) {
       tasks.map(async (task) => {
         const { demo, creatorId, persona, index } = task
 
-        const prompt = `You are a UGC (User Generated Content) caption writer. Generate a VERY SHORT and CONCISE social media caption for a product demo video.
+        // Different angle/approach for each caption to ensure uniqueness
+        const captionAngles = [
+          'Focus on the PROBLEM the product solves - start with a pain point',
+          'Focus on the TRANSFORMATION or result - what happens after using it',
+          'Use a QUESTION to hook the viewer and create curiosity',
+          'Make a BOLD CLAIM or statement that grabs attention',
+          'Use HUMOR or a playful tone to stand out',
+          'Create URGENCY or FOMO (fear of missing out)',
+          'Tell a MINI STORY or personal experience angle',
+          'Use a COMPARISON or "before vs after" angle',
+          'Appeal to EMOTIONS - how it makes you feel',
+          'Use a SURPRISING FACT or statistic angle',
+        ]
+        const angleForThisCaption = captionAngles[index % captionAngles.length]
+
+        const prompt = `You are a UGC (User Generated Content) caption writer. Generate a UNIQUE social media caption for a product demo video.
 
 Product: ${productDescription}
-Target Audience: ${audience}
-Desired Tone: ${tone}
+Target Audience: ${audience || 'General audience'}
+Desired Tone: ${tone || 'Engaging and natural'}
 Creator Persona: ${persona}
 Video transcript summary: ${demo.transcript || 'No transcript available'}
 
+**CRITICAL - UNIQUE ANGLE FOR THIS CAPTION:**
+${angleForThisCaption}
+
 IMPORTANT CONSTRAINTS:
 - Length requirement: ${lengthInstruction}
-- Count every single word carefully before submitting
-- Be extremely concise and punchy
-- Use emojis if they fit the persona (count emojis as visual elements, not words)
-- Keep it natural and conversational but SHORT
+- This is caption #${index + 1} - it MUST be completely different from other captions
+- DO NOT start with generic phrases like "Meet your new..." or "Say goodbye to..."
+- Be creative and use the specific angle above
+- Use 1-2 emojis maximum, placed naturally
+- Make it scroll-stopping and memorable
 
-Generate a simple, engaging caption that matches the creator persona and tone. The caption MUST be ${lengthInstruction}.
-
-Return your response as a JSON object with this exact structure:
+Return your response as a JSON object:
 {
-  "caption": "your complete caption text here"
+  "caption": "your unique caption text here"
 }
 
-Do NOT include hashtags or call-to-action. Just write a simple, SHORT caption that is ${lengthInstruction}.`
+Remember: Each caption should feel completely fresh and different!`
 
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
             {
               role: 'system',
-              content: 'You are an expert UGC caption writer. Always return valid JSON.',
+              content: 'You are an expert UGC caption writer who creates unique, creative captions. Each caption must be distinctly different. Always return valid JSON.',
             },
             {
               role: 'user',
               content: prompt,
             },
           ],
-          temperature: 0.8,
+          temperature: 1.0, // Higher temperature for more variety
           response_format: { type: 'json_object' },
         })
 

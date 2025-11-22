@@ -57,6 +57,13 @@ export interface CaptionStyle {
   customY?: number;
 }
 
+export interface GeneratedCaption {
+  id: string;
+  text: string;
+  isEditing?: boolean;
+  isRegenerating?: boolean;
+}
+
 export interface ExperimentData {
   demos: DemoVideo[];
   selectedCreators: string[];
@@ -70,5 +77,8 @@ export interface ExperimentData {
   subtitleStyle: string | null;
   captionStyle: CaptionStyle;
   variants: Variant[];
+  // Persisted captions from Step 3
+  generatedCaptions?: GeneratedCaption[];
+  captionPrompt?: string;
 }
 
