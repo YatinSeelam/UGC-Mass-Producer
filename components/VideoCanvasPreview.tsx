@@ -50,6 +50,11 @@ export default function VideoCanvasPreview({
   const dimensions = getAspectRatioDimensions()
   const canvasWidth = dimensions.width
   const canvasHeight = dimensions.height
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null)
@@ -709,7 +714,7 @@ export default function VideoCanvasPreview({
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Hidden videos */}
-      {creatorVideoUrl && (
+      {isMounted && creatorVideoUrl && (
         <video
           ref={creatorVideoRef}
           src={creatorVideoUrl}
@@ -719,7 +724,7 @@ export default function VideoCanvasPreview({
           preload="auto"
         />
       )}
-      {demoVideoUrl && (
+      {isMounted && demoVideoUrl && (
         <video
           ref={demoVideoRef}
           src={demoVideoUrl}

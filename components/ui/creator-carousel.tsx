@@ -16,6 +16,11 @@ interface CreatorCarouselProps extends React.HTMLAttributes<HTMLDivElement> {
 export const CreatorCarousel = React.forwardRef<HTMLDivElement, CreatorCarouselProps>(
   ({ templates, selectedCreators, onToggleCreator, maxReached, className, ...props }, ref) => {
     const [currentIndex, setCurrentIndex] = React.useState(Math.floor(templates.length / 2))
+    const [isMounted, setIsMounted] = React.useState(false)
+
+    React.useEffect(() => {
+      setIsMounted(true)
+    }, [])
 
     const handleNext = React.useCallback(() => {
       setCurrentIndex((prevIndex) => (prevIndex + 1) % templates.length)
@@ -94,7 +99,7 @@ export const CreatorCarousel = React.forwardRef<HTMLDivElement, CreatorCarouselP
                   >
                     {/* Video/Image Container */}
                     <div className="relative w-full h-full bg-gray-100">
-                      {template.videoUrl ? (
+                      {isMounted && template.videoUrl ? (
                         <video
                           src={template.videoUrl}
                           className="w-full h-full object-cover"

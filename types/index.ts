@@ -27,6 +27,7 @@ export interface Variant {
   demoName: string;
   creatorTemplateId: string | null;
   creatorName: string;
+  creatorVideoUrl?: string | null; // URL to creator template video for stitching
   subtitleStyle: string | null;
   subtitleEnabled: boolean;
   hook: string;

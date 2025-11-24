@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { CREATOR_TEMPLATES } from '@/lib/constants'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
@@ -49,7 +50,12 @@ export async function POST(request: NextRequest) {
       const creatorsToUse = creators.length > 0 ? creators : ['neutral']
 
       for (const creatorId of creatorsToUse) {
-        const persona = CREATOR_PERSONAS[creatorId] || CREATOR_PERSONAS['neutral']
+        // Map creator template IDs to persona keys
+        let personaKey = creatorId
+        if (creatorId.startsWith('creator-')) {
+          personaKey = 'neutral'
+        }
+        const persona = CREATOR_PERSONAS[personaKey] || CREATOR_PERSONAS['neutral']
 
         // Generate multiple captions per combo
         for (let i = 0; i < captionsPerCombo; i++) {
@@ -132,20 +138,27 @@ Remember: Each caption should feel completely fresh and different!`
 
         const variantId = `variant-${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}`
 
+        // Get creator info from CREATOR_TEMPLATES
+        const creatorTemplate = CREATOR_TEMPLATES.find(c => c.id === creatorId)
+        let creatorName = 'Unknown'
+        let creatorVideoUrl: string | null = null
+
+        if (creatorTemplate) {
+          creatorName = creatorTemplate.name
+          creatorVideoUrl = creatorTemplate.videoUrl || null
+        } else if (creatorId === 'neutral') {
+          creatorName = 'Neutral Brand Voice'
+        } else if (creatorId.startsWith('creator-')) {
+          creatorName = `Creator ${creatorId.replace('creator-', '')}`
+        }
+
         return {
           id: variantId,
           demoId: demo.id,
           demoName: demo.name,
           creatorTemplateId: creatorId === 'neutral' ? null : creatorId,
-          creatorName: creatorId === 'neutral'
-            ? 'Neutral Brand Voice'
-            : creatorId === 'female-hype'
-              ? 'Female – Hype'
-              : creatorId === 'female-calm'
-                ? 'Female – Calm Aesthetic'
-                : creatorId === 'male-gym'
-                  ? 'Male – Gym Bro'
-                  : 'Unknown',
+          creatorName,
+          creatorVideoUrl, // Include the creator video URL for stitching
           subtitleStyle: subtitleEnabled ? subtitleStyle : null,
           subtitleEnabled,
           hook: '',

@@ -32,6 +32,11 @@ function ThumbnailCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   // Get canvas dimensions based on aspect ratio
   const getCanvasDimensions = () => {
@@ -197,7 +202,7 @@ function ThumbnailCanvas({
         height: '100%',
       }}
     >
-      {videoUrl && (
+      {isMounted && videoUrl && (
         <>
           <video
             ref={videoRef}

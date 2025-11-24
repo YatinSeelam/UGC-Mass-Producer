@@ -2,11 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import Step1Upload from '@/components/Step1Upload'
-import Step2Creators from '@/components/Step2Creators'
-import Step3Config from '@/components/Step3Config'
-import Step4Review from '@/components/Step4Review'
-import { ExperimentData, DemoVideo } from '@/types'
+import SimpleUGCGenerator from '@/components/SimpleUGCGenerator'
 import { 
   Home, 
   Folder, 
@@ -17,78 +13,6 @@ import {
 
 export default function UGCGeneratorPage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false)
-  const [currentStep, setCurrentStep] = useState(1)
-  const [experimentData, setExperimentData] = useState<ExperimentData>({
-    demos: [],
-    selectedCreators: [],
-    productDescription: '',
-    audience: '',
-    tone: '',
-    captionsPerCombo: 3,
-    captionLength: 'medium', // Default caption length
-    subtitleEnabled: false,
-    subtitleStyle: null,
-    captionStyle: {
-      textColor: '#ffffff',
-      backgroundColor: '#000000',
-      backgroundOpacity: 0.7,
-      fontSize: 16,
-      xPercent: 0.5, // Center horizontally
-      yPercent: 0.85, // Near bottom (85% down)
-      widthPercent: 0.8, // 80% of video width
-      paddingPx: 20,
-      rotation: 0, // No rotation by default
-      position: 'bottom', // Legacy field
-    },
-    variants: [],
-  })
-
-  const updateDemos = (demos: DemoVideo[]) => {
-    setExperimentData(prev => ({ ...prev, demos }))
-  }
-
-  const updateSelectedCreators = (creators: string[]) => {
-    setExperimentData(prev => ({ ...prev, selectedCreators: creators }))
-  }
-
-  const updateConfig = (config: Partial<ExperimentData>) => {
-    setExperimentData(prev => {
-      // Only update if something actually changed
-      if (config.captionStyle) {
-        const prevStyle = prev.captionStyle
-        const newStyle = config.captionStyle
-        // Deep comparison of captionStyle properties
-        const styleChanged = 
-          prevStyle.textColor !== newStyle.textColor ||
-          prevStyle.backgroundColor !== newStyle.backgroundColor ||
-          prevStyle.backgroundOpacity !== newStyle.backgroundOpacity ||
-          prevStyle.fontSize !== newStyle.fontSize ||
-          prevStyle.xPercent !== newStyle.xPercent ||
-          prevStyle.yPercent !== newStyle.yPercent ||
-          prevStyle.widthPercent !== newStyle.widthPercent ||
-          prevStyle.paddingPx !== newStyle.paddingPx ||
-          (prevStyle.rotation || 0) !== (newStyle.rotation || 0)
-        if (!styleChanged) return prev
-      }
-      return { ...prev, ...config }
-    })
-  }
-
-  const updateVariants = (variants: ExperimentData['variants']) => {
-    setExperimentData(prev => ({ ...prev, variants }))
-  }
-
-  const handleNext = () => {
-    if (currentStep < 4) {
-      setCurrentStep(currentStep + 1)
-    }
-  }
-
-  const handleBack = () => {
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
-    }
-  }
 
   return (
     <main style={{ 
@@ -263,121 +187,16 @@ export default function UGCGeneratorPage() {
         </div>
       )}
 
-      {/* Main Content */}
+      {/* Main Content - Simplified UGC Generator */}
       <div style={{ 
         flex: 1,
-        padding: '2rem',
         marginLeft: '80px',
         width: 'calc(100% - 80px)',
-        display: 'flex',
-        justifyContent: 'center',
-        overflow: 'auto',
+        height: '100vh',
+        overflow: 'hidden',
       }}>
-        <div style={{ 
-          maxWidth: '1200px', 
-          width: '100%',
-          height: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-        }}>
-        <div style={{ marginBottom: '1.5rem', flexShrink: 0 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-            <h1 style={{ fontSize: '1.5rem', fontWeight: '600', color: '#111827', letterSpacing: '-0.025em' }}>
-              UGC Generator
-            </h1>
-          </div>
-          {/* Breadcrumbs Navigation */}
-          <nav style={{ 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: '0.5rem',
-            padding: '0.75rem 0',
-            borderBottom: '1px solid #e5e7eb',
-          }}>
-            {[
-              { num: 1, label: 'Upload' },
-              { num: 2, label: 'Creators' },
-              { num: 3, label: 'Config' },
-              { num: 4, label: 'Review' },
-            ].map((step, index) => (
-              <div key={step.num} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <div
-                  style={{
-                    padding: '0.5rem 1rem',
-                    borderRadius: '8px',
-                    background: currentStep === step.num 
-                      ? 'linear-gradient(135deg, #3b82f6 0%, #2563eb 50%, #1d4ed8 100%)'
-                      : 'transparent',
-                    color: currentStep === step.num ? 'white' : currentStep > step.num ? '#3b82f6' : '#9ca3af',
-                    fontWeight: currentStep === step.num ? '600' : '500',
-                    fontSize: '0.875rem',
-                    transition: 'all 0.2s',
-                    cursor: 'pointer',
-                    boxShadow: currentStep === step.num 
-                      ? '0 4px 12px rgba(59, 130, 246, 0.3), inset 0 1px 0 rgba(255,255,255,0.2)'
-                      : 'none',
-                  }}
-                >
-                  {step.label}
-                </div>
-                {index < 3 && (
-                  <span style={{ color: '#d1d5db', fontSize: '0.875rem' }}>/</span>
-                )}
-              </div>
-            ))}
-          </nav>
-        </div>
-
-        <div style={{ 
-          background: 'linear-gradient(135deg, #ffffff 0%, #fafbfc 50%, #f8fafc 100%)',
-          borderRadius: '16px', 
-          padding: '2rem',
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          minHeight: 0,
-          boxShadow: '0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.9)',
-          border: '1px solid rgba(229, 231, 235, 0.5)',
-        }}>
-          {currentStep === 1 && (
-            <Step1Upload
-              demos={experimentData.demos}
-              onUpdate={updateDemos}
-              onNext={handleNext}
-            />
-          )}
-          {currentStep === 2 && (
-            <Step2Creators
-              selectedCreators={experimentData.selectedCreators}
-              onUpdate={updateSelectedCreators}
-              onNext={handleNext}
-              onBack={handleBack}
-            />
-          )}
-          {currentStep === 3 && (
-            <Step3Config
-              data={experimentData}
-              onUpdate={updateConfig}
-              onNext={handleNext}
-              onBack={handleBack}
-              onGenerate={updateVariants}
-            />
-          )}
-          {currentStep === 4 && (
-            <Step4Review
-              variants={experimentData.variants}
-              captionStyle={experimentData.captionStyle}
-              demos={experimentData.demos}
-              aspectRatio={experimentData.aspectRatio}
-              onUpdate={updateVariants}
-              onBack={handleBack}
-            />
-          )}
-        </div>
-        </div>
+        <SimpleUGCGenerator />
       </div>
     </main>
   )
 }
-

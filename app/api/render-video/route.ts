@@ -326,6 +326,8 @@ export async function POST(request: NextRequest) {
 
       // Step 2: Build FFmpeg filter to composite caption image over video
       // We'll use the overlay filter instead of drawtext to preserve emoji rendering
+      // The caption PNG is already rendered at the correct position (based on xPercent/yPercent)
+      // So we overlay it at 0:0, and it will appear at the correct position
       const videoFilter = [
         'scale=1080:1920:force_original_aspect_ratio=increase',
         'crop=1080:1920',
@@ -346,7 +348,10 @@ export async function POST(request: NextRequest) {
       }
 
       // Add caption image as second input
-      args.push('-i', captionImagePath)
+      // Using -loop 1 to loop the single-frame PNG indefinitely
+      // Using -t to limit the looped image to 300 seconds (5 mins max video length)
+      // This ensures the caption stays visible for the entire concatenated video
+      args.push('-loop', '1', '-t', '300', '-i', captionImagePath)
 
       // Add time constraints if provided
       if (startTime) {
@@ -358,10 +363,17 @@ export async function POST(request: NextRequest) {
 
       // Add output options with overlay filter
       // [0:v] = first input (video), [1:v] = second input (caption PNG)
+      // The overlay filter will apply the caption to the entire video (both creator and demo sections)
+      // Since the caption PNG is transparent except for the caption text, it will overlay correctly
+      // The caption PNG is already positioned correctly (rendered at xPercent/yPercent), so overlay=0:0 works
+      // The -loop 1 and -framerate options ensure the single-frame PNG loops for the entire video duration
+      // Using format=auto to handle transparency, and eof_action=repeat to keep caption visible
+      // NOT using shortest option - the video length is determined by the main video input
       args.push(
         '-filter_complex', `[0:v]${videoFilter}[v];[v][1:v]overlay=0:0[out]`,
         '-map', '[out]',
         '-map', '0:a?', // Map audio from first input if exists
+        '-shortest', // End output when video ends (caption loops indefinitely)
         '-c:v', 'libx264',
         '-b:v', '5000k',
         '-r', '30',

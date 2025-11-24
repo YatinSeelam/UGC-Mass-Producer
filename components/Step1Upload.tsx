@@ -17,10 +17,15 @@ function VideoThumbnail({ demo, isHovered, onRemove }: { demo: DemoVideo, isHove
   const [duration, setDuration] = useState(0)
   const [isMuted, setIsMuted] = useState(false) // Start with sound enabled
   const [showControls, setShowControls] = useState(false)
+  const [isMounted, setIsMounted] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const thumbnailVideoRef = useRef<HTMLVideoElement>(null)
   const progressBarRef = useRef<HTMLDivElement>(null)
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   useEffect(() => {
     if (!demo.url || !videoRef.current) return
@@ -143,12 +148,14 @@ function VideoThumbnail({ demo, isHovered, onRemove }: { demo: DemoVideo, isHove
       }}
     >
       {/* Hidden video for aspect ratio detection */}
-      <video
-        ref={videoRef}
-        src={demo.url}
-        style={{ display: 'none' }}
-        preload="metadata"
-      />
+      {isMounted && (
+        <video
+          ref={videoRef}
+          src={demo.url}
+          style={{ display: 'none' }}
+          preload="metadata"
+        />
+      )}
       
       {/* Video player */}
       <div 
@@ -168,27 +175,29 @@ function VideoThumbnail({ demo, isHovered, onRemove }: { demo: DemoVideo, isHove
           }
         }}
       >
-        <video
-          ref={thumbnailVideoRef}
-          src={demo.url}
-          style={{
-            width: '100%',
-            height: '100%',
-            objectFit: 'cover',
-            display: 'block',
-            margin: 0,
-            padding: 0,
-            verticalAlign: 'top',
-          }}
-          preload="metadata"
-          playsInline
-          muted={isMuted}
-          onLoadedMetadata={() => {
-            if (thumbnailVideoRef.current) {
-              thumbnailVideoRef.current.muted = isMuted
-            }
-          }}
-        />
+        {isMounted && (
+          <video
+            ref={thumbnailVideoRef}
+            src={demo.url}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+              margin: 0,
+              padding: 0,
+              verticalAlign: 'top',
+            }}
+            preload="metadata"
+            playsInline
+            muted={isMuted}
+            onLoadedMetadata={() => {
+              if (thumbnailVideoRef.current) {
+                thumbnailVideoRef.current.muted = isMuted
+              }
+            }}
+          />
+        )}
         
         {/* Play icon overlay - clean and minimal */}
         {!isPlaying && (
@@ -443,7 +452,12 @@ function VideoGridItem({
   onMouseLeave: () => void
 }) {
   const [aspectRatio, setAspectRatio] = useState<'9:16' | '16:9' | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   useEffect(() => {
     if (!demo.url || !videoRef.current) return
@@ -498,6 +512,7 @@ export default function Step1Upload({ demos, onUpdate, onNext }: Step1UploadProp
   const [hoveredDemoId, setHoveredDemoId] = useState<string | null>(null)
   const [aspectRatios, setAspectRatios] = useState<Record<string, '9:16' | '16:9' | null>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const isProcessingRef = useRef(false)
   
   const handleAspectRatioDetected = useCallback((id: string, aspectRatio: '9:16' | '16:9' | null) => {
     setAspectRatios(prev => ({ ...prev, [id]: aspectRatio }))
@@ -531,33 +546,7 @@ export default function Step1Upload({ demos, onUpdate, onNext }: Step1UploadProp
     })
   }, [demos, aspectRatios])
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(true)
-  }
-
-  const handleDragLeave = (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-  }
-
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault()
-    setIsDragging(false)
-    const files = Array.from(e.dataTransfer.files).filter(
-      file => file.type.startsWith('video/')
-    )
-    await handleFiles(files)
-  }
-
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []).filter(
-      file => file.type.startsWith('video/')
-    )
-    await handleFiles(files)
-  }
-
-  const handleFiles = async (files: File[]) => {
+  const handleFiles = useCallback(async (files: File[]) => {
     if (files.length === 0) return
     
     setUploading(true)
@@ -612,7 +601,84 @@ export default function Step1Upload({ demos, onUpdate, onNext }: Step1UploadProp
         // Don't block on transcription errors
       }
     })
+  }, [demos, onUpdate])
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(true)
   }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragging(false)
+    const files = Array.from(e.dataTransfer.files).filter(
+      file => file.type.startsWith('video/')
+    )
+    await handleFiles(files)
+  }
+
+  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    // Prevent multiple simultaneous file selections
+    if (isProcessingRef.current) {
+      console.log('[Upload] Already processing files, ignoring new selection')
+      return
+    }
+    
+    const input = e.target
+    const files = input.files
+    
+    if (!files || files.length === 0) {
+      return
+    }
+    
+    // Set processing flag
+    isProcessingRef.current = true
+    
+    // Create a copy of the FileList immediately
+    const fileArray = Array.from(files)
+    const videoFiles = fileArray.filter(
+      file => file.type.startsWith('video/')
+    )
+    
+    if (videoFiles.length === 0) {
+      // Reset input if no valid videos
+      isProcessingRef.current = false
+      setTimeout(() => {
+        if (fileInputRef.current) {
+          fileInputRef.current.value = ''
+        }
+      }, 0)
+      return
+    }
+    
+    // Process the files
+    handleFiles(videoFiles)
+      .then(() => {
+        // Reset processing flag and input after successful processing
+        isProcessingRef.current = false
+        // Wait a bit longer to ensure React has updated the UI
+        setTimeout(() => {
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+        }, 500)
+      })
+      .catch(error => {
+        console.error('[Upload] Error:', error)
+        isProcessingRef.current = false
+        // Reset on error too
+        setTimeout(() => {
+          if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+          }
+        }, 100)
+      })
+  }, [handleFiles])
 
   const removeDemo = (id: string) => {
     const updated = demos.filter(demo => demo.id !== id)
