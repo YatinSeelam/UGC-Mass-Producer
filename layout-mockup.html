@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magic Canvas Layout Mockup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #F1F5F9;
+        }
+
+        .main-container {
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* LEFT PANEL - Creation Zone (40%) */
+        .left-panel {
+            width: 40%;
+            background: #FFFFFF;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .left-content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        /* Hook Input - Huge */
+        .hook-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .hook-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .hook-input {
+            width: 100%;
+            min-height: 120px;
+            padding: 1.25rem;
+            font-size: 18px;
+            border: none;
+            background: #F3F4F6;
+            border-radius: 12px;
+            outline: none;
+            font-family: inherit;
+            resize: vertical;
+        }
+
+        .hook-input::placeholder {
+            color: #9CA3AF;
+        }
+
+        /* Avatar Selection */
+        .avatar-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .avatar-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .avatar-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 0.75rem;
+        }
+
+        .avatar-item {
+            width: 64px;
+            height: 64px;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid #E5E7EB;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .avatar-item:hover {
+            transform: scale(1.05);
+            border-color: #3B82F6;
+        }
+
+        .avatar-item.selected {
+            border: 4px solid #3B82F6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .avatar-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Demos Upload */
+        .demos-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .demos-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .upload-area {
+            min-height: 120px;
+            background: #F3F4F6;
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+
+        .upload-area:hover {
+            background: #E5E7EB;
+        }
+
+        .upload-area.dragging {
+            border: 2px dashed #3B82F6;
+            background: #EFF6FF;
+        }
+
+        .upload-icon {
+            width: 48px;
+            height: 48px;
+            color: #9CA3AF;
+            margin-bottom: 0.5rem;
+        }
+
+        .upload-text {
+            font-size: 0.875rem;
+            color: #6B7280;
+        }
+
+        /* Generate Button */
+        .generate-button {
+            width: 100%;
+            padding: 1rem 1.5rem;
+            background: linear-gradient(135deg, #3B82F6 0%, #6366F1 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+            transition: all 0.2s;
+            margin-top: auto;
+        }
+
+        .generate-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 12px 30px rgba(59, 130, 246, 0.4);
+        }
+
+        .generate-button:disabled {
+            background: #D1D5DB;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Captions List */
+        .captions-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .caption-item {
+            padding: 0.75rem 1rem;
+            background: #FFFFFF;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .caption-item:hover {
+            background: #F8FAFC;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .caption-item.selected {
+            background: #EFF6FF;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.2);
+        }
+
+        .caption-text {
+            flex: 1;
+            font-size: 0.875rem;
+            color: #1E293B;
+        }
+
+        /* RIGHT PANEL - Result Zone (60%) */
+        .right-panel {
+            width: 60%;
+            background: #F8FAFC;
+            display: flex;
+            flex-direction: column;
+            padding: 2rem;
+            gap: 2rem;
+            overflow: hidden;
+        }
+
+        /* iPhone Mockup */
+        .iphone-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .iphone-frame {
+            width: 320px;
+            aspect-ratio: 9/16;
+            background: #1F2937;
+            border-radius: 40px;
+            padding: 12px;
+            box-shadow: 
+                0 20px 60px rgba(0, 0, 0, 0.3),
+                0 0 0 8px #0F172A,
+                inset 0 0 0 2px rgba(255, 255, 255, 0.1);
+            position: relative;
+        }
+
+        .iphone-notch {
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 24px;
+            background: #1F2937;
+            border-radius: 0 0 16px 16px;
+            z-index: 10;
+        }
+
+        .iphone-screen {
+            width: 100%;
+            height: 100%;
+            background: #000;
+            border-radius: 32px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .iphone-content {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .iphone-home {
+            position: absolute;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 120px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+
+        /* Style Presets */
+        .style-presets {
+            display: flex;
+            gap: 0.75rem;
+            justify-content: center;
+            margin-top: 1rem;
+        }
+
+        .preset-button {
+            padding: 0.625rem 1.25rem;
+            border: 2px solid #E5E7EB;
+            background: white;
+            border-radius: 8px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .preset-button:hover {
+            border-color: #3B82F6;
+            background: #EFF6FF;
+        }
+
+        .preset-button.active {
+            background: #3B82F6;
+            color: white;
+            border-color: #3B82F6;
+        }
+
+        /* Horizontal Filmstrip */
+        .filmstrip-container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .filmstrip-label {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #475569;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .filmstrip {
+            display: flex;
+            gap: 1rem;
+            overflow-x: auto;
+            padding: 0.5rem 0;
+            scrollbar-width: thin;
+            scrollbar-color: #CBD5E1 #F1F5F9;
+        }
+
+        .filmstrip::-webkit-scrollbar {
+            height: 8px;
+        }
+
+        .filmstrip::-webkit-scrollbar-track {
+            background: #F1F5F9;
+            border-radius: 4px;
+        }
+
+        .filmstrip::-webkit-scrollbar-thumb {
+            background: #CBD5E1;
+            border-radius: 4px;
+        }
+
+        .filmstrip-item {
+            flex-shrink: 0;
+            width: 120px;
+            aspect-ratio: 9/16;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.2s;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .filmstrip-item:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        .filmstrip-item.selected {
+            border: 3px solid #3B82F6;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+        }
+
+        .filmstrip-thumbnail {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.75rem;
+        }
+
+        /* Optimized Styling Section */
+        .styling-section {
+            background: white;
+            border-radius: 12px;
+            padding: 1rem;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .styling-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+
+        .styling-title {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .advanced-toggle {
+            font-size: 0.75rem;
+            color: #3B82F6;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .styling-controls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 0.75rem;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .control-label {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: #64748B;
+        }
+
+        .color-swatch-group {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .color-swatch {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            border: 2px solid #E5E7EB;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.2s;
+        }
+
+        .color-swatch:hover {
+            transform: scale(1.1);
+            border-color: #3B82F6;
+        }
+
+        .color-swatch input[type="color"] {
+            position: absolute;
+            inset: -4px;
+            width: calc(100% + 8px);
+            height: calc(100% + 8px);
+            border: none;
+            cursor: pointer;
+            opacity: 0;
+        }
+
+        .font-size-control {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .font-size-button {
+            width: 32px;
+            height: 32px;
+            border: 1px solid #E5E7EB;
+            background: white;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #374151;
+        }
+
+        .font-size-value {
+            flex: 1;
+            text-align: center;
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: #1E293B;
+        }
+
+        .opacity-slider {
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: #E5E7EB;
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .opacity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #3B82F6;
+            cursor: pointer;
+        }
+
+        .advanced-controls {
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid #E5E7EB;
+            display: none;
+        }
+
+        .advanced-controls.show {
+            display: block;
+        }
+
+        .position-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+        }
+
+        .position-input {
+            width: 100%;
+            padding: 0.5rem;
+            border: 1px solid #E5E7EB;
+            border-radius: 6px;
+            font-size: 0.875rem;
+            outline: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-container">
+        <!-- LEFT PANEL - Creation Zone (40%) -->
+        <div class="left-panel">
+            <div class="left-content">
+                <!-- Hook Input -->
+                <div class="hook-section">
+                    <div class="hook-label">Hook</div>
+                    <textarea 
+                        class="hook-input" 
+                        placeholder="What is this video about?"
+                    ></textarea>
+                </div>
+
+                <!-- Avatar Selection -->
+                <div class="avatar-section">
+                    <div class="avatar-label">AI Avatar</div>
+                    <div class="avatar-grid">
+                        <div class="avatar-item selected">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #667EEA 0%, #764BA2 100%);"></div>
+                        </div>
+                        <div class="avatar-item">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #F093FB 0%, #F5576C 100%);"></div>
+                        </div>
+                        <div class="avatar-item">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #4FACFE 0%, #00F2FE 100%);"></div>
+                        </div>
+                        <div class="avatar-item">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #43E97B 0%, #38F9D7 100%);"></div>
+                        </div>
+                        <div class="avatar-item">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #FA709A 0%, #FEE140 100%);"></div>
+                        </div>
+                        <div class="avatar-item">
+                            <div style="width: 100%; height: 100%; background: linear-gradient(135deg, #30CFD0 0%, #330867 100%);"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Demos Upload -->
+                <div class="demos-section">
+                    <div class="demos-label">My Demos</div>
+                    <div class="upload-area">
+                        <svg class="upload-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        <div class="upload-text">Click or drag to upload videos</div>
+                    </div>
+                </div>
+
+                <!-- Optimized Styling Section -->
+                <div class="styling-section">
+                    <div class="styling-header">
+                        <div class="styling-title">Caption Style</div>
+                        <div class="advanced-toggle" onclick="toggleAdvanced()">Advanced</div>
+                    </div>
+                    <div class="styling-controls">
+                        <div class="control-group">
+                            <div class="control-label">Text Color</div>
+                            <div class="color-swatch-group">
+                                <div class="color-swatch" style="background: #FFFFFF;">
+                                    <input type="color" value="#FFFFFF">
+                                </div>
+                                <div class="color-swatch" style="background: #000000;">
+                                    <input type="color" value="#000000">
+                                </div>
+                                <div class="color-swatch" style="background: #3B82F6;">
+                                    <input type="color" value="#3B82F6">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">Background</div>
+                            <div class="color-swatch-group">
+                                <div class="color-swatch" style="background: #000000;">
+                                    <input type="color" value="#000000">
+                                </div>
+                                <div class="color-swatch" style="background: #FFFFFF;">
+                                    <input type="color" value="#FFFFFF">
+                                </div>
+                                <div class="color-swatch" style="background: #1F2937;">
+                                    <input type="color" value="#1F2937">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">Font Size</div>
+                            <div class="font-size-control">
+                                <button class="font-size-button">−</button>
+                                <div class="font-size-value">24</div>
+                                <button class="font-size-button">+</button>
+                            </div>
+                        </div>
+                        <div class="control-group">
+                            <div class="control-label">Opacity</div>
+                            <input type="range" class="opacity-slider" min="0" max="100" value="70">
+                        </div>
+                    </div>
+                    <div class="advanced-controls" id="advancedControls">
+                        <div class="position-controls">
+                            <div class="control-group">
+                                <div class="control-label">Position X</div>
+                                <input type="number" class="position-input" value="50" min="0" max="100">
+                            </div>
+                            <div class="control-group">
+                                <div class="control-label">Position Y</div>
+                                <input type="number" class="position-input" value="85" min="0" max="100">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Captions List -->
+                <div class="captions-list">
+                    <div class="caption-item selected">
+                        <div class="caption-text">This is an amazing product that will change your life!</div>
+                    </div>
+                    <div class="caption-item">
+                        <div class="caption-text">You won't believe what this can do for you...</div>
+                    </div>
+                    <div class="caption-item">
+                        <div class="caption-text">Transform your workflow in just 5 minutes!</div>
+                    </div>
+                </div>
+
+                <!-- Generate Button -->
+                <button class="generate-button">Generate Magic</button>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL - Result Zone (60%) -->
+        <div class="right-panel">
+            <!-- iPhone Mockup -->
+            <div class="iphone-container">
+                <div class="iphone-frame">
+                    <div class="iphone-notch"></div>
+                    <div class="iphone-screen">
+                        <div class="iphone-content">Video Preview</div>
+                    </div>
+                    <div class="iphone-home"></div>
+                </div>
+            </div>
+
+            <!-- Style Presets -->
+            <div class="style-presets">
+                <button class="preset-button active">Style 1: Bold</button>
+                <button class="preset-button">Style 2: Minimal</button>
+                <button class="preset-button">Style 3: Neon</button>
+            </div>
+
+            <!-- Horizontal Filmstrip -->
+            <div class="filmstrip-container">
+                <div class="filmstrip-label">Generated Captions (6)</div>
+                <div class="filmstrip">
+                    <div class="filmstrip-item selected">
+                        <div class="filmstrip-thumbnail">1</div>
+                    </div>
+                    <div class="filmstrip-item">
+                        <div class="filmstrip-thumbnail">2</div>
+                    </div>
+                    <div class="filmstrip-item">
+                        <div class="filmstrip-thumbnail">3</div>
+                    </div>
+                    <div class="filmstrip-item">
+                        <div class="filmstrip-thumbnail">4</div>
+                    </div>
+                    <div class="filmstrip-item">
+                        <div class="filmstrip-thumbnail">5</div>
+                    </div>
+                    <div class="filmstrip-item">
+                        <div class="filmstrip-thumbnail">6</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function toggleAdvanced() {
+            const controls = document.getElementById('advancedControls');
+            controls.classList.toggle('show');
+        }
+    </script>
+</body>
+</html>

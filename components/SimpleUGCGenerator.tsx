@@ -2553,6 +2553,7 @@ export default function SimpleUGCGenerator({ onGenerate }: SimpleUGCGeneratorPro
   const [exportProgress, setExportProgress] = useState({ current: 0, total: 0 })
   const [selectedForExport, setSelectedForExport] = useState<Set<string>>(new Set())
   const [isMounted, setIsMounted] = useState(false)
+  const [avatarPage, setAvatarPage] = useState(1)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const isProcessingFilesRef = useRef(false)
 
@@ -3284,79 +3285,133 @@ export default function SimpleUGCGenerator({ onGenerate }: SimpleUGCGeneratorPro
               gap: '0.375rem',
               marginBottom: '0.5rem',
             }}>
-              {CREATOR_TEMPLATES.slice(0, 24).map((creator) => {
-                const isSelected = selectedCreators.includes(creator.id)
-                const maxReached = selectedCreators.length >= 3 && !isSelected
+              {(() => {
+                const ITEMS_PER_PAGE = 24 // 4 rows × 6 columns = 24 videos per page
+                const totalPages = Math.ceil(CREATOR_TEMPLATES.length / ITEMS_PER_PAGE)
+                // Calculate start and end indices to show exactly 24 videos per page
+                const startIndex = (avatarPage - 1) * ITEMS_PER_PAGE
+                const endIndex = startIndex + ITEMS_PER_PAGE
+                // Slice to get exactly 24 videos (or remaining videos on last page)
+                const currentPageCreators = CREATOR_TEMPLATES.slice(startIndex, endIndex)
                 
-                return (
-                  <div
-                    key={creator.id}
-                    onClick={() => !maxReached && toggleCreator(creator.id)}
-                    style={{
-                      width: '42px',
-                      height: '42px',
-                      borderRadius: '6px',
-                      overflow: 'hidden',
-                      cursor: maxReached ? 'not-allowed' : 'pointer',
-                      border: isSelected ? '2px solid #3B82F6' : '1px solid #E5E7EB',
-                      opacity: maxReached ? 0.5 : 1,
-                      transition: 'all 0.2s',
-                      position: 'relative',
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!maxReached) {
-                        e.currentTarget.style.borderColor = '#3B82F6'
-                        e.currentTarget.style.transform = 'scale(1.05)'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!isSelected) {
-                        e.currentTarget.style.borderColor = '#E5E7EB'
-                        e.currentTarget.style.transform = 'scale(1)'
-                      }
-                    }}
-                  >
-                    <video
-                      src={creator.videoUrl}
+                return currentPageCreators.map((creator) => {
+                  const isSelected = selectedCreators.includes(creator.id)
+                  const maxReached = selectedCreators.length >= 3 && !isSelected
+                  
+                  return (
+                    <div
+                      key={creator.id}
+                      onClick={() => !maxReached && toggleCreator(creator.id)}
                       style={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
+                        width: '42px',
+                        height: '42px',
+                        borderRadius: '6px',
+                        overflow: 'hidden',
+                        cursor: maxReached ? 'not-allowed' : 'pointer',
+                        border: isSelected ? '2px solid #3B82F6' : '1px solid #E5E7EB',
+                        opacity: maxReached ? 0.5 : 1,
+                        transition: 'all 0.2s',
+                        position: 'relative',
                       }}
-                      muted
-                      playsInline
-                      preload="auto"
-                    />
-                    {isSelected && (
-                      <div style={{
-                        position: 'absolute',
-                        top: '2px',
-                        right: '2px',
-                        width: '12px',
-                        height: '12px',
-                        backgroundColor: '#3B82F6',
-                        borderRadius: '50%',
-                        border: '2px solid white',
-                      }} />
-                    )}
-                  </div>
-                )
-              })}
+                      onMouseEnter={(e) => {
+                        if (!maxReached) {
+                          e.currentTarget.style.borderColor = '#3B82F6'
+                          e.currentTarget.style.transform = 'scale(1.05)'
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isSelected) {
+                          e.currentTarget.style.borderColor = '#E5E7EB'
+                          e.currentTarget.style.transform = 'scale(1)'
+                        }
+                      }}
+                    >
+                      <video
+                        src={creator.videoUrl || undefined}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                        muted
+                        playsInline
+                        preload="auto"
+                      />
+                      {isSelected && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '2px',
+                          right: '2px',
+                          width: '12px',
+                          height: '12px',
+                          backgroundColor: '#3B82F6',
+                          borderRadius: '50%',
+                          border: '2px solid white',
+                        }} />
+                      )}
+                    </div>
+                  )
+                })
+              })()}
             </div>
             
             {/* Pagination */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              gap: '0.5rem',
-              fontSize: '0.6875rem',
-              color: '#6B7280',
-            }}>
-              <span>‹</span>
-              <span>1/10</span>
-              <span>›</span>
-            </div>
+            {(() => {
+              const ITEMS_PER_PAGE = 24 // 4 rows × 6 columns = 24 videos per page
+              const totalPages = Math.ceil(CREATOR_TEMPLATES.length / ITEMS_PER_PAGE)
+              const isLastPage = avatarPage >= totalPages
+              
+              return (
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  fontSize: '0.6875rem',
+                  color: '#6B7280',
+                }}>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setAvatarPage(prev => Math.max(1, prev - 1))
+                    }}
+                    disabled={avatarPage === 1}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: avatarPage === 1 ? 'not-allowed' : 'pointer',
+                      color: avatarPage === 1 ? '#9CA3AF' : '#6B7280',
+                      fontSize: '0.875rem',
+                      padding: '0.25rem',
+                      opacity: avatarPage === 1 ? 0.5 : 1,
+                    }}
+                  >
+                    ‹
+                  </button>
+                  <span>
+                    {avatarPage}/{totalPages}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault()
+                      setAvatarPage(prev => Math.min(totalPages, prev + 1))
+                    }}
+                    disabled={isLastPage}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: isLastPage ? 'not-allowed' : 'pointer',
+                      color: isLastPage ? '#9CA3AF' : '#6B7280',
+                      fontSize: '0.875rem',
+                      padding: '0.25rem',
+                      opacity: isLastPage ? 0.5 : 1,
+                    }}
+                  >
+                    ›
+                  </button>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Captions Per Combo Selector */}
