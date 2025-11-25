@@ -9,6 +9,7 @@ import { execSync } from 'child_process'
 
 // Ensure temp directory exists
 const TEMP_DIR = join(tmpdir(), 'ugc-render')
+const OUTPUT_FPS = 30
 
 // Cross-platform font file detection (prioritize fonts with best Unicode/emoji support)
 const getFontFile = () => {
@@ -347,11 +348,10 @@ export async function POST(request: NextRequest) {
         args.push('-i', inputFile)
       }
 
-      // Add caption image as second input
-      // Using -loop 1 to loop the single-frame PNG indefinitely
-      // Using -t to limit the looped image to 300 seconds (5 mins max video length)
-      // This ensures the caption stays visible for the entire concatenated video
-      args.push('-loop', '1', '-t', '300', '-i', captionImagePath)
+      // Add caption image as second input.
+      // Use stream_loop to make the overlay infinite so there are no blank gaps between clips.
+      // We rely on -shortest later so the render still stops when the main video ends.
+      args.push('-stream_loop', '-1', '-i', captionImagePath)
 
       // Add time constraints if provided
       if (startTime) {
@@ -369,14 +369,20 @@ export async function POST(request: NextRequest) {
       // The -loop 1 and -framerate options ensure the single-frame PNG loops for the entire video duration
       // Using format=auto to handle transparency, and eof_action=repeat to keep caption visible
       // NOT using shortest option - the video length is determined by the main video input
+      const overlayFilter = [
+        `[0:v]${videoFilter},format=rgba[base]`,
+        `[1:v]format=rgba,setsar=1,loop=-1:size=1:start=0,setpts=N/(${OUTPUT_FPS}*TB)[caption]`,
+        '[base][caption]overlay=0:0:eof_action=repeat[out]',
+      ].join(';')
+
       args.push(
-        '-filter_complex', `[0:v]${videoFilter}[v];[v][1:v]overlay=0:0[out]`,
+        '-filter_complex', overlayFilter,
         '-map', '[out]',
         '-map', '0:a?', // Map audio from first input if exists
         '-shortest', // End output when video ends (caption loops indefinitely)
         '-c:v', 'libx264',
         '-b:v', '5000k',
-        '-r', '30',
+        '-r', OUTPUT_FPS.toString(),
         '-pix_fmt', 'yuv420p',
         '-preset', 'medium',
         '-crf', '23',

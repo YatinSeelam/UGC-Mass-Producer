@@ -496,7 +496,9 @@ function VideoGridItem({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <video ref={videoRef} src={demo.url} style={{ display: 'none' }} preload="metadata" />
+      {isMounted && (
+        <video ref={videoRef} src={demo.url} style={{ display: 'none' }} preload="metadata" />
+      )}
       <VideoThumbnail
         demo={demo}
         isHovered={isHovered}

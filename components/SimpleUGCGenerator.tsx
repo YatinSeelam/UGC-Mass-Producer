@@ -2249,6 +2249,37 @@ function PreviewWithCaptions({
   )
 }
 
+// Normalize caption style to ensure required properties exist
+const normalizeCaptionStyle = (style: CaptionStyle): CaptionStyle => {
+  if (style.xPercent !== undefined && style.yPercent !== undefined && style.widthPercent !== undefined) {
+    return {
+      ...style,
+      xPercent: style.xPercent ?? 0.5,
+      yPercent: style.yPercent ?? 0.85,
+      widthPercent: style.widthPercent ?? 0.8,
+      paddingPx: style.paddingPx ?? 20,
+    }
+  }
+
+  let xPercent = 0.5
+  let yPercent = 0.85
+  const widthPercent = 0.8
+  const paddingPx = 20
+
+  if (style.position === 'custom' && style.customX !== undefined && style.customY !== undefined) {
+    xPercent = style.customX / 1080
+    yPercent = style.customY / 1920
+  } else if (style.position === 'top') {
+    yPercent = 0.15
+  } else if (style.position === 'center') {
+    yPercent = 0.5
+  } else {
+    yPercent = 0.85
+  }
+
+  return { ...style, xPercent, yPercent, widthPercent, paddingPx }
+}
+
 // Thumbnail Canvas Component - Renders video frame with embedded caption
 function ThumbnailCanvas({ 
   videoUrl, 
@@ -2288,7 +2319,7 @@ function ThumbnailCanvas({
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d', { alpha: false })
     const video = videoRef.current
-    if (!canvas || !ctx || !video || video.readyState < 2) return
+    if (!canvas || !ctx || !video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return
 
     ctx.fillStyle = '#000'
     ctx.fillRect(0, 0, canvasWidth, canvasHeight)
@@ -2316,7 +2347,7 @@ function ThumbnailCanvas({
     ctx.drawImage(video, offsetX, offsetY, drawWidth, drawHeight)
 
     if (caption) {
-      const style = captionStyle
+      const style = normalizeCaptionStyle(captionStyle)
       const charsPerLine = Math.round(35 * style.widthPercent / 0.8) || 25
       const wrappedText = wrapText(caption, charsPerLine)
       const lines = wrappedText.split('\n')
@@ -2385,25 +2416,66 @@ function ThumbnailCanvas({
     const video = videoRef.current
     if (!video || !videoUrl) return
 
-    const handleLoadedData = () => {
+    let hasRendered = false
+    const attemptRender = () => {
+      if (hasRendered) return
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        hasRendered = true
+        renderFrame()
+      }
+    }
+
+    const handleLoadedMetadata = () => {
       video.currentTime = 0.5
-      setTimeout(renderFrame, 100)
+    }
+
+    const handleLoadedData = () => {
+      if (video.currentTime !== 0.5) {
+        video.currentTime = 0.5
+      } else {
+        attemptRender()
+      }
     }
 
     const handleSeeked = () => {
-      renderFrame()
+      attemptRender()
     }
 
+    const handleCanPlay = () => {
+      attemptRender()
+    }
+
+    // Add multiple event listeners to catch different loading states
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
     video.addEventListener('loadeddata', handleLoadedData)
     video.addEventListener('seeked', handleSeeked)
+    video.addEventListener('canplay', handleCanPlay)
     
+    // If video is already loaded, try to render immediately
     if (video.readyState >= 2) {
-      video.currentTime = 0.5
+      if (video.videoWidth > 0) {
+        video.currentTime = 0.5
+      } else {
+        // Wait a bit for video dimensions to be available
+        setTimeout(() => {
+          if (video.videoWidth > 0) {
+            video.currentTime = 0.5
+          }
+        }, 100)
+      }
     }
 
+    // Fallback: try rendering after a delay even if events don't fire
+    const fallbackTimer = setTimeout(() => {
+      attemptRender()
+    }, 500)
+
     return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('loadeddata', handleLoadedData)
       video.removeEventListener('seeked', handleSeeked)
+      video.removeEventListener('canplay', handleCanPlay)
+      clearTimeout(fallbackTimer)
     }
   }, [videoUrl, renderFrame])
 
@@ -2430,7 +2502,7 @@ function ThumbnailCanvas({
             style={{ display: 'none' }}
             muted
             playsInline
-            preload="metadata"
+            preload="auto"
           />
           <canvas
             ref={canvasRef}

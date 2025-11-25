@@ -462,3 +462,4 @@ The step is divided into **2 columns**:
 - **Template Library**: Save and reuse caption styles
 - **Analytics**: Track which captions perform best
 
+

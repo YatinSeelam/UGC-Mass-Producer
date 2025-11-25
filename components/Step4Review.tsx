@@ -58,7 +58,7 @@ function ThumbnailCanvas({
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d', { alpha: false })
     const video = videoRef.current
-    if (!canvas || !ctx || !video || video.readyState < 2) return
+    if (!canvas || !ctx || !video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return
 
     // Clear canvas
     ctx.fillStyle = '#000'
@@ -89,7 +89,7 @@ function ThumbnailCanvas({
 
     // Draw caption if exists
     if (caption) {
-      const style = captionStyle
+      const style = normalizeCaptionStyle(captionStyle)
       const charsPerLine = Math.round(35 * style.widthPercent / 0.8) || 25
       const wrappedText = wrapText(caption, charsPerLine)
       const lines = wrappedText.split('\n')
@@ -163,25 +163,66 @@ function ThumbnailCanvas({
     const video = videoRef.current
     if (!video || !videoUrl) return
 
-    const handleLoadedData = () => {
-      video.currentTime = 0.5 // Show frame at 0.5s
-      setTimeout(renderFrame, 100)
+    let hasRendered = false
+    const attemptRender = () => {
+      if (hasRendered) return
+      if (video.readyState >= 2 && video.videoWidth > 0) {
+        hasRendered = true
+        renderFrame()
+      }
     }
 
-    const handleSeeked = () => {
-      renderFrame()
-    }
-
-    video.addEventListener('loadeddata', handleLoadedData)
-    video.addEventListener('seeked', handleSeeked)
-    
-    if (video.readyState >= 2) {
+    const handleLoadedMetadata = () => {
       video.currentTime = 0.5
     }
 
+    const handleLoadedData = () => {
+      if (video.currentTime !== 0.5) {
+        video.currentTime = 0.5
+      } else {
+        attemptRender()
+      }
+    }
+
+    const handleSeeked = () => {
+      attemptRender()
+    }
+
+    const handleCanPlay = () => {
+      attemptRender()
+    }
+
+    // Add multiple event listeners to catch different loading states
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('loadeddata', handleLoadedData)
+    video.addEventListener('seeked', handleSeeked)
+    video.addEventListener('canplay', handleCanPlay)
+    
+    // If video is already loaded, try to render immediately
+    if (video.readyState >= 2) {
+      if (video.videoWidth > 0) {
+        video.currentTime = 0.5
+      } else {
+        // Wait a bit for video dimensions to be available
+        setTimeout(() => {
+          if (video.videoWidth > 0) {
+            video.currentTime = 0.5
+          }
+        }, 100)
+      }
+    }
+
+    // Fallback: try rendering after a delay even if events don't fire
+    const fallbackTimer = setTimeout(() => {
+      attemptRender()
+    }, 500)
+
     return () => {
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('loadeddata', handleLoadedData)
       video.removeEventListener('seeked', handleSeeked)
+      video.removeEventListener('canplay', handleCanPlay)
+      clearTimeout(fallbackTimer)
     }
   }, [videoUrl, renderFrame])
 
@@ -210,7 +251,7 @@ function ThumbnailCanvas({
             style={{ display: 'none' }}
             muted
             playsInline
-            preload="metadata"
+            preload="auto"
           />
           <canvas
             ref={canvasRef}

@@ -42,6 +42,7 @@ export default function MiniEditor({
   const [volume, setVolume] = useState(70)
   const [isScrubbing, setIsScrubbing] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(1)
+  const [scrubPreviewTime, setScrubPreviewTime] = useState<number | null>(null)
 
   // this is what we actually send to VideoCanvasPreview as "seekTime"
   // it is ONLY set when the user scrubs/clicks the timeline
@@ -53,6 +54,8 @@ export default function MiniEditor({
   const previewAreaRef = useRef<HTMLDivElement>(null)
   const previewBoxRef = useRef<HTMLDivElement>(null)
   const timelineContainerRef = useRef<HTMLDivElement>(null)
+  const pendingSeekRef = useRef<number | null>(null)
+  const rafSeekRef = useRef<number | null>(null)
 
   // sync caption text with prop (when prop changes from parent)
   useEffect(() => {
@@ -129,6 +132,15 @@ export default function MiniEditor({
     return () => window.removeEventListener('resize', handleResize)
   }, [resizePreviewForContainer])
 
+  useEffect(() => {
+    return () => {
+      if (rafSeekRef.current) {
+        cancelAnimationFrame(rafSeekRef.current)
+        rafSeekRef.current = null
+      }
+    }
+  }, [])
+
   const formatTime = (sec: number) => {
     const h = Math.floor(sec / 3600)
     const m = Math.floor((sec % 3600) / 60)
@@ -139,34 +151,59 @@ export default function MiniEditor({
   }
 
   // ---- timeline scrubbing ----
-  const seekToClientX = (clientX: number) => {
-    if (!timelineContainerRef.current || totalDuration <= 0) return
+  const flushPendingSeek = useCallback(() => {
+    if (pendingSeekRef.current === null) return
+    if (totalDuration <= 0) {
+      pendingSeekRef.current = null
+      return
+    }
+    const target = Math.max(0, Math.min(totalDuration || 0, pendingSeekRef.current))
+    pendingSeekRef.current = null
+    setSeekTarget(target)
+    onTimeUpdate(target)
+  }, [onTimeUpdate, totalDuration])
+
+  const scheduleSeek = useCallback((time: number) => {
+    pendingSeekRef.current = time
+    if (rafSeekRef.current !== null) return
+    rafSeekRef.current = requestAnimationFrame(() => {
+      rafSeekRef.current = null
+      flushPendingSeek()
+    })
+  }, [flushPendingSeek])
+
+  const timeFromClientX = useCallback((clientX: number) => {
+    if (!timelineContainerRef.current || totalDuration <= 0) return null
     const rect = timelineContainerRef.current.getBoundingClientRect()
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    const newTime = frac * totalDuration
-
-    // tell parent time should change (for timeline display)
-    onTimeUpdate(newTime)
-    // tell the player to seek once
-    setSeekTarget(newTime)
-  }
+    return frac * totalDuration
+  }, [totalDuration])
 
   const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     if (totalDuration <= 0) return
     e.preventDefault()
     e.stopPropagation()
+    const newTime = timeFromClientX(e.clientX)
+    if (newTime === null) return
     setIsScrubbing(true)
-    seekToClientX(e.clientX)
+    setScrubPreviewTime(newTime)
+    scheduleSeek(newTime)
   }
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isScrubbing) return
-      seekToClientX(e.clientX)
+      const newTime = timeFromClientX(e.clientX)
+      if (newTime === null) return
+      setScrubPreviewTime(newTime)
+      scheduleSeek(newTime)
     }
 
     const handleMouseUp = () => {
+      if (!isScrubbing) return
       setIsScrubbing(false)
+      flushPendingSeek()
+      setScrubPreviewTime(null)
     }
 
     if (isScrubbing) {
@@ -178,7 +215,7 @@ export default function MiniEditor({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isScrubbing, totalDuration])
+  }, [flushPendingSeek, isScrubbing, scheduleSeek, timeFromClientX])
 
   // ---- zoom with scroll (center zoom only) ----
   const handleWheel = useCallback((e: React.WheelEvent) => {
@@ -195,23 +232,24 @@ export default function MiniEditor({
     }
   }, [captionText, onCaptionChange])
 
+  const displayTime = scrubPreviewTime ?? currentTime
   const progressPercent =
     totalDuration > 0
-      ? Math.min(100, Math.max(0, (currentTime / totalDuration) * 100))
+      ? Math.min(100, Math.max(0, (displayTime / totalDuration) * 100))
       : 0
 
   return (
     <>
-      <div className="w-full h-full rounded-[16px] bg-white shadow-sm border border-slate-200/50 px-4 pt-4 pb-3 flex flex-col">
+      <div className="w-full h-full rounded-[18px] bg-gradient-to-b from-[#0b0c10] to-[#151821] text-white shadow-[0_18px_40px_rgba(0,0,0,0.45)] border border-white/5 px-4 pt-4 pb-3 flex flex-col transition-colors">
         {/* Preview Area */}
         <div
           ref={previewAreaRef}
-          className="mb-3 flex flex-1 items-center justify-center rounded-[12px] bg-slate-100 overflow-hidden min-h-0"
+          className="mb-3 flex flex-1 items-center justify-center rounded-[14px] bg-[#050607] border border-white/5 overflow-hidden min-h-0"
           onWheel={handleWheel}
         >
           <div
             ref={previewBoxRef}
-            className="relative flex items-center justify-center rounded-[12px] bg-black text-slate-100 text-lg tracking-wide shadow-sm transition-all duration-200 ease-out overflow-hidden"
+            className="relative flex items-center justify-center rounded-[14px] bg-black text-white text-lg tracking-wide shadow-[0_12px_34px_rgba(0,0,0,0.65)] border border-white/10 transition-all duration-200 ease-out overflow-hidden"
           >
             {creatorVideoUrl || demoVideoUrl ? (
               <div style={{ width: '100%', height: '100%' }}>
@@ -257,51 +295,51 @@ export default function MiniEditor({
         <div className="mb-3 px-1">
           <div
             ref={timelineContainerRef}
-            className="group relative h-1.5 cursor-pointer rounded-full bg-slate-200/60 transition-all duration-200 ease-out hover:h-2"
+            className="group relative h-2 cursor-pointer rounded-full bg-[#1b1d21] transition-all duration-200 ease-out hover:h-[10px]"
             onMouseDown={handleTimelineMouseDown}
             style={{
-              background: 'linear-gradient(to right, #e2e8f0 0%, #cbd5e1 100%)',
+              background: 'linear-gradient(90deg, #111316 0%, #1f232b 100%)',
             }}
           >
             <div
-              className="pointer-events-none absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-blue-500 to-blue-600 transition-all duration-75 ease-linear shadow-sm"
+              className="pointer-events-none absolute left-0 top-0 h-full rounded-full bg-gradient-to-r from-white to-[#dfe2e7] transition-all duration-75 ease-linear shadow-[0_4px_15px_rgba(255,255,255,0.25)]"
               style={{ width: `${progressPercent}%` }}
             />
             <div
-              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-blue-500 shadow-[0_2px_8px_rgba(59,130,246,0.3)] transition-all duration-200 ease-out group-hover:scale-125 group-hover:shadow-[0_4px_12px_rgba(59,130,246,0.4)]"
+              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-black shadow-[0_3px_10px_rgba(0,0,0,0.5)] transition-all duration-200 ease-out group-hover:scale-110 group-hover:shadow-[0_6px_16px_rgba(0,0,0,0.6)]"
               style={{ left: `${progressPercent}%` }}
             />
           </div>
-          <div className="mt-2 text-center font-mono text-[11px] font-semibold text-slate-600 tracking-wide">
-            <span className="text-slate-700">{formatTime(Math.max(0, currentTime))}</span>
-            <span className="mx-1.5 text-slate-400">/</span>
-            <span className="text-slate-500">{formatTime(Math.max(0, totalDuration))}</span>
+          <div className="mt-2 text-center font-mono text-[11px] font-semibold text-white/70 tracking-wide">
+            <span className="text-white">{formatTime(Math.max(0, displayTime))}</span>
+            <span className="mx-1.5 text-white/40">/</span>
+            <span className="text-white/60">{formatTime(Math.max(0, totalDuration))}</span>
           </div>
         </div>
 
         {/* Control Bar */}
-        <div className="flex items-center justify-between rounded-xl bg-gradient-to-r from-slate-50 to-slate-100/50 px-4 py-2 gap-3 overflow-hidden border border-slate-200/60 shadow-sm">
+        <div className="flex items-center justify-between rounded-2xl bg-[#0f1116] px-4 py-2 gap-3 overflow-hidden border border-white/10 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
           <button
             onClick={() => onPlayStateChange(!isPlaying)}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white shadow-md transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg flex-shrink-0 border border-slate-200/50"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-md transition-all duration-200 ease-out hover:scale-110 hover:shadow-lg flex-shrink-0 border border-white/40"
             type="button"
           >
             {isPlaying ? (
               <div className="flex gap-1">
-                <div className="h-3.5 w-0.5 bg-slate-700 rounded-full" />
-                <div className="h-3.5 w-0.5 bg-slate-700 rounded-full" />
+                <div className="h-3.5 w-0.5 bg-black rounded-full" />
+                <div className="h-3.5 w-0.5 bg-black rounded-full" />
               </div>
             ) : (
-              <span className="ml-0.5 inline-block border-l-[8px] border-y-[5px] border-l-slate-700 border-y-transparent" />
+              <span className="ml-0.5 inline-block border-l-[8px] border-y-[5px] border-l-black border-y-transparent" />
             )}
           </button>
 
           <div className="flex items-center gap-2 flex-shrink-0">
             {/* Volume */}
-            <div className="flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 backdrop-blur-sm px-2.5 py-1.5 shadow-sm">
+            <div className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 backdrop-blur-sm px-2.5 py-1.5 shadow-sm">
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-4 w-4 text-slate-600"
+                className="h-4 w-4 text-white"
                 viewBox="0 0 20 20"
                 fill="currentColor"
               >
@@ -321,7 +359,7 @@ export default function MiniEditor({
                   width: '65px',
                   height: '4px',
                   borderRadius: '999px',
-                  background: 'linear-gradient(to right, #cbd5e1 0%, #94a3b8 100%)',
+                  background: 'linear-gradient(90deg, rgba(255,255,255,0.3) 0%, rgba(255,255,255,0.8) 100%)',
                   outline: 'none',
                 }}
               />
@@ -338,14 +376,14 @@ export default function MiniEditor({
                   else if (val === '4x5') onAspectRatioChange('4:5')
                   else onAspectRatioChange('9:16')
                 }}
-                className="appearance-none rounded-full border border-slate-200/80 bg-white/80 backdrop-blur-sm px-3 py-1.5 pr-7 text-[11px] font-semibold text-slate-700 outline-none transition-all duration-200 ease-out hover:border-blue-400 hover:bg-white hover:shadow-sm cursor-pointer"
+                className="appearance-none rounded-full border border-white/20 bg-[#0b0c10] px-3 py-1.5 pr-7 text-[11px] font-semibold text-white outline-none transition-all duration-200 ease-out hover:border-white/50 hover:bg-black hover:shadow-sm cursor-pointer"
               >
                 <option value="1x1">1:1</option>
                 <option value="16x9">16:9</option>
                 <option value="9x16">9:16</option>
                 <option value="4x5">4:5</option>
               </select>
-              <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-slate-500">
+              <div className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-white/70">
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   className="h-3.5 w-3.5"
@@ -371,29 +409,29 @@ export default function MiniEditor({
           width: 16px;
           height: 16px;
           border-radius: 999px;
-          background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+          background: linear-gradient(135deg, #ffffff 0%, #d4d7de 100%);
           cursor: pointer;
-          box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4), 0 0 0 3px rgba(59, 130, 246, 0.15);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(255, 255, 255, 0.2);
           border: 2.5px solid white;
           transition: all 0.2s ease;
         }
         .volume-range::-webkit-slider-thumb:hover {
           transform: scale(1.15);
-          box-shadow: 0 3px 8px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.2);
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45), 0 0 0 4px rgba(255, 255, 255, 0.25);
         }
         .volume-range::-moz-range-thumb {
           width: 16px;
           height: 16px;
           border-radius: 999px;
-          background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+          background: linear-gradient(135deg, #ffffff 0%, #d4d7de 100%);
           cursor: pointer;
-          box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4), 0 0 0 3px rgba(59, 130, 246, 0.15);
+          box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 3px rgba(255, 255, 255, 0.2);
           border: 2.5px solid white;
           transition: all 0.2s ease;
         }
         .volume-range::-moz-range-thumb:hover {
           transform: scale(1.15);
-          box-shadow: 0 3px 8px rgba(59, 130, 246, 0.5), 0 0 0 4px rgba(59, 130, 246, 0.2);
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45), 0 0 0 4px rgba(255, 255, 255, 0.25);
         }
       `}</style>
     </>

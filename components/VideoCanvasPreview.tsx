@@ -711,6 +711,28 @@ export default function VideoCanvasPreview({
     }
   }
 
+  if (!isMounted) {
+    return (
+      <div style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        borderRadius: '8px',
+        backgroundColor: '#000',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        fontSize: '0.75rem',
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        opacity: 0.6,
+      }}>
+        Preparing preview...
+      </div>
+    )
+  }
+
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       {/* Hidden videos */}
@@ -772,8 +794,6 @@ export default function VideoCanvasPreview({
             zIndex: 2,
           }}
         />
-
-
       </div>
     </div>
   )
